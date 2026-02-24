@@ -8,8 +8,20 @@ import '../core/db/database.dart';
 class EventEditScreen extends ConsumerStatefulWidget {
   final Event? event;
   final DateTime? initialDate;
+  final String? prefilledTitle;
+  final DateTime? prefilledStartDate;
+  final DateTime? prefilledEndDate;
+  final String? prefilledLocation;
 
-  const EventEditScreen({super.key, this.event, this.initialDate});
+  const EventEditScreen({
+    super.key,
+    this.event,
+    this.initialDate,
+    this.prefilledTitle,
+    this.prefilledStartDate,
+    this.prefilledEndDate,
+    this.prefilledLocation,
+  });
 
   @override
   ConsumerState<EventEditScreen> createState() => _EventEditScreenState();
@@ -36,19 +48,26 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.event?.title ?? '');
+    _titleController = TextEditingController(
+      text: widget.event?.title ?? widget.prefilledTitle ?? '',
+    );
     _descriptionController = TextEditingController(
       text: widget.event?.description ?? '',
     );
     _locationController = TextEditingController(
-      text: widget.event?.location ?? '',
+      text: widget.event?.location ?? widget.prefilledLocation ?? '',
     );
 
     _startDate =
-        widget.event?.startDate ?? widget.initialDate ?? DateTime.now();
+        widget.event?.startDate ??
+        widget.prefilledStartDate ??
+        widget.initialDate ??
+        DateTime.now();
     _startTime = TimeOfDay.fromDateTime(_startDate);
     _endDate =
-        widget.event?.endDate ?? _startDate.add(const Duration(hours: 1));
+        widget.event?.endDate ??
+        widget.prefilledEndDate ??
+        _startDate.add(const Duration(hours: 1));
     _endTime = TimeOfDay.fromDateTime(_endDate);
     _recurrenceRule = widget.event?.recurrenceRule;
     _selectedCalendarId = widget.event?.calendarId;
@@ -241,236 +260,309 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.event == null ? 'New Event' : 'Edit Event'),
-        actions: [
-          if (widget.event != null)
-            IconButton(icon: const Icon(Icons.delete), onPressed: _deleteEvent),
-          IconButton(icon: const Icon(Icons.check), onPressed: _saveEvent),
-        ],
+    return Container(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Event Title',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.title),
-              ),
-              validator: (value) =>
-                  value == null || value.isEmpty ? 'Title is required' : null,
-            ),
-            const SizedBox(height: 16),
-            if (_calendars.isNotEmpty)
-              DropdownButtonFormField<int>(
-                initialValue: _selectedCalendarId,
-                decoration: const InputDecoration(
-                  labelText: 'Calendar',
-                  prefixIcon: Icon(Icons.calendar_month),
-                  border: OutlineInputBorder(),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag Handle
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                items: _calendars.map((cal) {
-                  return DropdownMenuItem<int>(
-                    value: cal.id,
-                    child: Row(
+              ),
+              // Header Row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    Text(
+                      widget.event == null ? 'New Event' : 'Edit Event',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: _parseColor(cal.color),
-                            shape: BoxShape.circle,
+                        if (widget.event != null)
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: _deleteEvent,
+                          ),
+                        TextButton(
+                          onPressed: _saveEvent,
+                          child: const Text(
+                            'Save',
+                            style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Text(cal.displayName),
                       ],
                     ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  setState(() {
-                    _selectedCalendarId = val;
-                  });
-                },
-              ),
-            const SizedBox(height: 16),
-            SwitchListTile(
-              title: const Text('All-day'),
-              value: _isAllDay,
-              onChanged: (val) {
-                setState(() {
-                  _isAllDay = val;
-                  if (val) {
-                    _startTime = const TimeOfDay(hour: 0, minute: 0);
-                    _endTime = const TimeOfDay(hour: 23, minute: 59);
-                  }
-                });
-              },
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: ListTile(
-                    leading: const Icon(Icons.calendar_today),
-                    title: const Text('Start Date'),
-                    subtitle: Text(
-                      '${_startDate.year}-${_startDate.month.toString().padLeft(2, '0')}-${_startDate.day.toString().padLeft(2, '0')}',
-                    ),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: _startDate,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() => _startDate = date);
-                      }
-                    },
-                  ),
+                  ],
                 ),
-                if (!_isAllDay)
-                  Expanded(
-                    child: ListTile(
-                      leading: const Icon(Icons.access_time),
-                      title: const Text('Start Time'),
-                      subtitle: Text(_startTime.format(context)),
-                      onTap: () async {
-                        final time = await showTimePicker(
-                          context: context,
-                          initialTime: _startTime,
-                        );
-                        if (time != null) {
-                          setState(() => _startTime = time);
-                        }
+              ),
+              const Divider(),
+              // Form Fields
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.all(16.0),
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'Event Title',
+                        border: InputBorder.none,
+                        prefixIcon: Icon(Icons.title),
+                      ),
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Title is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    if (_calendars.isNotEmpty)
+                      DropdownButtonFormField<int>(
+                        initialValue: _selectedCalendarId,
+                        decoration: const InputDecoration(
+                          labelText: 'Calendar',
+                          prefixIcon: Icon(Icons.calendar_month),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _calendars.map((cal) {
+                          return DropdownMenuItem<int>(
+                            value: cal.id,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: _parseColor(cal.color),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(cal.displayName),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedCalendarId = val;
+                          });
+                        },
+                      ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      title: const Text('All-day'),
+                      value: _isAllDay,
+                      onChanged: (val) {
+                        setState(() {
+                          _isAllDay = val;
+                          if (val) {
+                            _startTime = const TimeOfDay(hour: 0, minute: 0);
+                            _endTime = const TimeOfDay(hour: 23, minute: 59);
+                          }
+                        });
                       },
                     ),
-                  ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: ListTile(
-                    leading: const Icon(Icons.calendar_today),
-                    title: const Text('End Date'),
-                    subtitle: Text(
-                      '${_endDate.year}-${_endDate.month.toString().padLeft(2, '0')}-${_endDate.day.toString().padLeft(2, '0')}',
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ListTile(
+                            leading: const Icon(Icons.calendar_today),
+                            title: const Text('Start Date'),
+                            subtitle: Text(
+                              '${_startDate.year}-${_startDate.month.toString().padLeft(2, '0')}-${_startDate.day.toString().padLeft(2, '0')}',
+                            ),
+                            onTap: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: _startDate,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2100),
+                              );
+                              if (date != null) {
+                                setState(() => _startDate = date);
+                              }
+                            },
+                          ),
+                        ),
+                        if (!_isAllDay)
+                          Expanded(
+                            child: ListTile(
+                              leading: const Icon(Icons.access_time),
+                              title: const Text('Start Time'),
+                              subtitle: Text(_startTime.format(context)),
+                              onTap: () async {
+                                final time = await showTimePicker(
+                                  context: context,
+                                  initialTime: _startTime,
+                                );
+                                if (time != null) {
+                                  setState(() => _startTime = time);
+                                }
+                              },
+                            ),
+                          ),
+                      ],
                     ),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: _endDate,
-                        firstDate: _startDate,
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        setState(() => _endDate = date);
-                      }
-                    },
-                  ),
-                ),
-                if (!_isAllDay)
-                  Expanded(
-                    child: ListTile(
-                      leading: const Icon(Icons.access_time_filled),
-                      title: const Text('End Time'),
-                      subtitle: Text(_endTime.format(context)),
-                      onTap: () async {
-                        final time = await showTimePicker(
-                          context: context,
-                          initialTime: _endTime,
-                        );
-                        if (time != null) {
-                          setState(() => _endTime = time);
-                        }
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ListTile(
+                            leading: const Icon(Icons.calendar_today),
+                            title: const Text('End Date'),
+                            subtitle: Text(
+                              '${_endDate.year}-${_endDate.month.toString().padLeft(2, '0')}-${_endDate.day.toString().padLeft(2, '0')}',
+                            ),
+                            onTap: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: _endDate,
+                                firstDate: _startDate,
+                                lastDate: DateTime(2100),
+                              );
+                              if (date != null) {
+                                setState(() => _endDate = date);
+                              }
+                            },
+                          ),
+                        ),
+                        if (!_isAllDay)
+                          Expanded(
+                            child: ListTile(
+                              leading: const Icon(Icons.access_time_filled),
+                              title: const Text('End Time'),
+                              subtitle: Text(_endTime.format(context)),
+                              onTap: () async {
+                                final time = await showTimePicker(
+                                  context: context,
+                                  initialTime: _endTime,
+                                );
+                                if (time != null) {
+                                  setState(() => _endTime = time);
+                                }
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String?>(
+                      initialValue: _recurrenceRule,
+                      decoration: const InputDecoration(
+                        labelText: 'Repeat',
+                        prefixIcon: Icon(Icons.repeat),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: null,
+                          child: Text('Does not repeat'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'FREQ=DAILY',
+                          child: Text('Every Day'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'FREQ=WEEKLY',
+                          child: Text('Every Week'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'FREQ=MONTHLY',
+                          child: Text('Every Month'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'FREQ=YEARLY',
+                          child: Text('Every Year'),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          _recurrenceRule = val;
+                        });
                       },
                     ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              initialValue: _recurrenceRule,
-              decoration: const InputDecoration(
-                labelText: 'Repeat',
-                prefixIcon: Icon(Icons.repeat),
-                border: OutlineInputBorder(),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Reminders',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 8.0,
+                      children: [
+                        ..._reminders.map(
+                          (mins) => InputChip(
+                            label: Text(_formatReminder(mins)),
+                            onDeleted: () {
+                              setState(() {
+                                _reminders.remove(mins);
+                              });
+                            },
+                          ),
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.add),
+                          label: const Text('Add reminder'),
+                          onPressed: _addReminder,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _locationController,
+                      decoration: const InputDecoration(
+                        labelText: 'Location',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.location_on),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _descriptionController,
+                      decoration: const InputDecoration(
+                        hintText: 'Description',
+                        border: InputBorder.none,
+                        prefixIcon: Icon(Icons.notes),
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
               ),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('Does not repeat')),
-                DropdownMenuItem(value: 'FREQ=DAILY', child: Text('Every Day')),
-                DropdownMenuItem(
-                  value: 'FREQ=WEEKLY',
-                  child: Text('Every Week'),
-                ),
-                DropdownMenuItem(
-                  value: 'FREQ=MONTHLY',
-                  child: Text('Every Month'),
-                ),
-                DropdownMenuItem(
-                  value: 'FREQ=YEARLY',
-                  child: Text('Every Year'),
-                ),
-              ],
-              onChanged: (val) {
-                setState(() {
-                  _recurrenceRule = val;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Reminders',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Wrap(
-              spacing: 8.0,
-              children: [
-                ..._reminders.map(
-                  (mins) => InputChip(
-                    label: Text(_formatReminder(mins)),
-                    onDeleted: () {
-                      setState(() {
-                        _reminders.remove(mins);
-                      });
-                    },
-                  ),
-                ),
-                ActionChip(
-                  avatar: const Icon(Icons.add),
-                  label: const Text('Add reminder'),
-                  onPressed: _addReminder,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _locationController,
-              decoration: const InputDecoration(
-                labelText: 'Location',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.location_on),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.notes),
-              ),
-              maxLines: 3,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

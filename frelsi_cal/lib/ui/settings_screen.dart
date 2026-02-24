@@ -6,6 +6,7 @@ import '../core/providers/providers.dart';
 import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
+import 'package:timezone/standalone.dart' as tz;
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -448,6 +449,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ElevatedButton(
               onPressed: _saveSettings,
               child: const Text('Save Connections'),
+            ),
+
+            const Divider(height: 48),
+
+            const Text(
+              'Timezone Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Consumer(
+              builder: (context, ref, child) {
+                final currentTz = ref.watch(secondaryTimezoneProvider);
+                final locations = tz.timeZoneDatabase.locations.keys.toList()
+                  ..sort();
+
+                return DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: 'Secondary Timezone',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.language),
+                  ),
+                  initialValue: currentTz,
+                  hint: const Text('None (Local Time Only)'),
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('None (Local Time Only)'),
+                    ),
+                    ...locations.map(
+                      (loc) => DropdownMenuItem(value: loc, child: Text(loc)),
+                    ),
+                  ],
+                  onChanged: (String? newValue) {
+                    ref
+                        .read(secondaryTimezoneProvider.notifier)
+                        .setTimezone(newValue);
+                  },
+                );
+              },
             ),
 
             const Divider(height: 48),

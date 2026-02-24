@@ -1,4 +1,4 @@
-import 'package:intl/intl.dart';
+import 'package:google_mlkit_entity_extraction/google_mlkit_entity_extraction.dart';
 
 class NlpParserResult {
   final String title;
@@ -20,138 +20,114 @@ class NlpParserResult {
 }
 
 class NlpParser {
-  /// Parses a natural language string into a structured event result.
-  /// Example: "Lunch with Sarah tomorrow at 1pm at the cafe"
-  static NlpParserResult parse(String input) {
+  static EntityExtractor? _extractor;
+
+  /// Initializes the ML Kit Extractor and downloads the English model if missing.
+  static Future<void> init() async {
+    final modelManager = EntityExtractorModelManager();
+    final isDownloaded = await modelManager.isModelDownloaded(
+      EntityExtractorLanguage.english.name,
+    );
+    if (!isDownloaded) {
+      await modelManager.downloadModel(EntityExtractorLanguage.english.name);
+    }
+    _extractor = EntityExtractor(language: EntityExtractorLanguage.english);
+  }
+
+  /// Parses a natural language string into a structured event result using Google ML Kit.
+  static Future<NlpParserResult> parse(String input) async {
     if (input.trim().isEmpty) {
       return NlpParserResult(title: '');
     }
 
-    String remainingTitle = input;
+    if (_extractor == null) {
+      await init();
+    }
+
     DateTime? parsedStartDate;
     DateTime? parsedEndDate;
     String? parsedLocation;
 
-    final now = DateTime.now();
+    final annotations = await _extractor!.annotateText(input);
 
-    // 1. Extract Location ("at [Location]")
-    // Look for " at " followed by some text at the end of the string
-    final locationMatch = RegExp(
-      r'\s+at\s+([^0-9Mamp]+\s*)$',
-      caseSensitive: false,
-    ).firstMatch(remainingTitle);
-    if (locationMatch != null) {
-      parsedLocation = locationMatch.group(1)?.trim();
-      remainingTitle = remainingTitle.replaceAll(locationMatch.group(0)!, '');
-    }
+    print('nlp_parser debug: parsing input -> "$input"');
+    print('nlp_parser debug: found ${annotations.length} annotations');
 
-    // 2. Extract Time
-    // Match patterns like "at 1pm", "at 13:00", "1:30 pm"
-    final timeMatch = RegExp(
-      r'(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?',
-      caseSensitive: false,
-    ).firstMatch(remainingTitle);
-    int? hour;
-    int? minute;
+    // Track which parts of the string were extracted so we can remove them from the title
+    List<List<int>> removeRanges = [];
 
-    if (timeMatch != null) {
-      final hourStr = timeMatch.group(1);
-      final minStr = timeMatch.group(2);
-      final ampm = timeMatch.group(3)?.toLowerCase();
-
-      if (hourStr != null) {
-        hour = int.tryParse(hourStr);
-        if (hour != null) {
-          if (ampm == 'pm' && hour < 12) hour += 12;
-          if (ampm == 'am' && hour == 12) hour = 0;
-        }
-      }
-
-      if (minStr != null) {
-        minute = int.tryParse(minStr);
-      } else {
-        minute = 0;
-      }
-
-      remainingTitle = remainingTitle.replaceAll(timeMatch.group(0)!, '');
-    }
-
-    // 3. Extract Date ("tomorrow", "today", "next tuesday", "on Oct 12")
-    final lowerInput = remainingTitle.toLowerCase();
-    DateTime targetDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ); // Default today
-    bool dateFound = false;
-
-    if (lowerInput.contains('tomorrow')) {
-      targetDate = targetDate.add(const Duration(days: 1));
-      remainingTitle = remainingTitle.replaceAll(
-        RegExp(r'\btomorrow\b', caseSensitive: false),
-        '',
+    for (final annotation in annotations) {
+      bool isMatch = false;
+      print(
+        'nlp_parser debug: Annotation "${annotation.text}" (start: ${annotation.start}, end: ${annotation.end})',
       );
-      dateFound = true;
-    } else if (lowerInput.contains('today')) {
-      // already targetDate
-      remainingTitle = remainingTitle.replaceAll(
-        RegExp(r'\btoday\b', caseSensitive: false),
-        '',
-      );
-      dateFound = true;
-    } else {
-      // Basic weekday detection (e.g. "on Monday" or "next Monday")
-      final weekdays = {
-        'monday': DateTime.monday,
-        'tuesday': DateTime.tuesday,
-        'wednesday': DateTime.wednesday,
-        'thursday': DateTime.thursday,
-        'friday': DateTime.friday,
-        'saturday': DateTime.saturday,
-        'sunday': DateTime.sunday,
-      };
-
-      for (var entry in weekdays.entries) {
-        if (lowerInput.contains(entry.key)) {
-          // Calculate next occurrence of this weekday
-          int daysToAdd = (entry.value - targetDate.weekday + 7) % 7;
-          if (daysToAdd == 0)
-            daysToAdd = 7; // if today is monday, "monday" means next monday
-
-          targetDate = targetDate.add(Duration(days: daysToAdd));
-          remainingTitle = remainingTitle.replaceAll(
-            RegExp(
-              r'\b(on\s+|next\s+)?' + entry.key + r'\b',
-              caseSensitive: false,
-            ),
-            '',
+      for (final entity in annotation.entities) {
+        print('nlp_parser debug:   - Entity type: ${entity.runtimeType}');
+        if (entity is DateTimeEntity) {
+          // ML Kit DateTimeEntity contains timestamp in milliseconds
+          parsedStartDate ??= DateTime.fromMillisecondsSinceEpoch(
+            entity.timestamp,
           );
-          dateFound = true;
-          break;
+          isMatch = true;
+        } else if (entity is AddressEntity) {
+          parsedLocation ??= annotation.text;
+          isMatch = true;
         }
+      }
+      if (isMatch) {
+        removeRanges.add([annotation.start, annotation.end]);
       }
     }
 
-    // Assemble Date and Time
-    if (hour != null) {
-      parsedStartDate = DateTime(
-        targetDate.year,
-        targetDate.month,
-        targetDate.day,
-        hour,
-        minute ?? 0,
-      );
-      // Default 1 hour duration
+    // Default duration is 1 hour
+    if (parsedStartDate != null) {
       parsedEndDate = parsedStartDate.add(const Duration(hours: 1));
-    } else if (dateFound) {
-      // All day event or just date specified without time
-      parsedStartDate = targetDate;
-      parsedEndDate = targetDate.add(const Duration(hours: 1));
+    }
+
+    // Remove extracted entities from the title
+    String remainingTitle = input;
+    // Sort descending by start index to safely replace without shifting
+    removeRanges.sort((a, b) => b[0].compareTo(a[0]));
+    for (final range in removeRanges) {
+      remainingTitle = remainingTitle.replaceRange(range[0], range[1], ' ');
+    }
+
+    // 3. Fallback Location Extract (if ML Kit missed it)
+    if (parsedLocation == null) {
+      final locMatch = RegExp(
+        r'\bat\s+(.+)$',
+        caseSensitive: false,
+      ).firstMatch(remainingTitle.trimRight());
+      if (locMatch != null) {
+        final maybeLoc = locMatch.group(1)?.trim();
+        if (maybeLoc != null &&
+            maybeLoc.isNotEmpty &&
+            !maybeLoc.toLowerCase().contains(
+              RegExp(r'\d{1,2}(:\d{2})?\s*(am|pm)'),
+            )) {
+          parsedLocation = maybeLoc;
+          remainingTitle = remainingTitle.replaceRange(
+            locMatch.start,
+            locMatch.end,
+            ' ',
+          );
+        }
+      }
     }
 
     // Clean up title
     remainingTitle = remainingTitle.replaceAll(RegExp(r'\s+'), ' ').trim();
-    // Capitalize first letter
+    // Remove lingering prepositions like "at" or "on"
+    remainingTitle = remainingTitle.replaceAll(
+      RegExp(r'^(at|on|in)\s+', caseSensitive: false),
+      '',
+    );
+    remainingTitle = remainingTitle.replaceAll(
+      RegExp(r'\s+(at|on|in)$', caseSensitive: false),
+      '',
+    );
+    remainingTitle = remainingTitle.trim();
+
     if (remainingTitle.isNotEmpty) {
       remainingTitle =
           remainingTitle[0].toUpperCase() + remainingTitle.substring(1);
@@ -159,11 +135,15 @@ class NlpParser {
       remainingTitle = "New Event";
     }
 
-    return NlpParserResult(
+    final finalResult = NlpParserResult(
       title: remainingTitle,
       startDate: parsedStartDate,
       endDate: parsedEndDate,
       location: parsedLocation,
     );
+
+    print('nlp_parser debug: RESULT -> $finalResult');
+
+    return finalResult;
   }
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:ui';
 import 'event_edit_screen.dart';
 import 'settings_screen.dart';
@@ -9,6 +11,7 @@ import '../core/providers/providers.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/parsers/nlp_parser.dart';
+import 'package:timezone/standalone.dart' as tz;
 
 class CalendarHomeScreen extends ConsumerStatefulWidget {
   const CalendarHomeScreen({super.key});
@@ -26,16 +29,52 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   int _initialIndex = 0;
   DateTime _selectedDate = DateTime.now();
   final TextEditingController _nlpController = TextEditingController();
+  final SpeechToText _speechToText = SpeechToText();
+  bool _isListening = false;
+  bool _hasText = false;
 
   @override
   void dispose() {
+    _nlpController.removeListener(_onTextChanged);
     _nlpController.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    setState(() {
+      _hasText = _nlpController.text.isNotEmpty;
+    });
+  }
+
+  void _initSpeech() async {
+    await _speechToText.initialize();
+    setState(() {});
+  }
+
+  void _startListening() async {
+    await _speechToText.listen(
+      onResult: (result) {
+        setState(() {
+          _nlpController.text = result.recognizedWords;
+          if (result.recognizedWords.isNotEmpty) {
+            _hasText = true;
+          }
+        });
+      },
+    );
+    setState(() => _isListening = true);
+  }
+
+  void _stopListening() async {
+    await _speechToText.stop();
+    setState(() => _isListening = false);
   }
 
   @override
   void initState() {
     super.initState();
+    _nlpController.addListener(_onTextChanged);
+    _initSpeech();
     _generateDays();
 
     // Listen to scroll to update the top week strip if needed
@@ -84,10 +123,35 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     setState(() => _selectedDate = DateTime.now());
   }
 
-  void _submitNlpEvent(String text) {
+  String? _extractMeetingUrl(String? description) {
+    if (description == null || description.isEmpty) return null;
+    final regex = RegExp(
+      r'(https?:\/\/(?:www\.)?(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|webex\.com)[^\s]+)',
+    );
+    final match = regex.firstMatch(description);
+    return match?.group(0);
+  }
+
+  void _submitNlpEvent(String text) async {
     if (text.trim().isEmpty) return;
 
-    final result = NlpParser.parse(text);
+    // Stop listening if we were dictating
+    if (_isListening) {
+      await _speechToText.stop();
+      setState(() => _isListening = false);
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Extracting details...'),
+        duration: Duration(milliseconds: 500),
+      ),
+    );
+
+    final result = await NlpParser.parse(text);
+
+    if (!mounted) return;
+
     _nlpController.clear();
     FocusScope.of(context).unfocus();
 
@@ -262,15 +326,27 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       ),
                       const SizedBox(width: 12),
                       CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        backgroundColor: _isListening
+                            ? Colors.red
+                            : Theme.of(context).colorScheme.primary,
                         radius: 24,
                         child: IconButton(
-                          icon: const Icon(
-                            Icons.send,
+                          icon: Icon(
+                            _hasText
+                                ? Icons.send
+                                : (_isListening ? Icons.mic : Icons.mic_none),
                             color: Colors.white,
                             size: 20,
                           ),
-                          onPressed: () => _submitNlpEvent(_nlpController.text),
+                          onPressed: () {
+                            if (_hasText && !_isListening) {
+                              _submitNlpEvent(_nlpController.text);
+                            } else {
+                              _speechToText.isNotListening
+                                  ? _startListening()
+                                  : _stopListening();
+                            }
+                          },
                         ),
                       ),
                     ],
@@ -344,10 +420,17 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                 ? const SizedBox(
                     height: 60,
                   ) // Spacer for empty days to maintain rhythm
-                : Column(
-                    children: events
-                        .map((e) => _buildEventCard(context, e))
-                        .toList(),
+                : Consumer(
+                    builder: (context, ref, child) {
+                      final secondaryTz = ref.watch(secondaryTimezoneProvider);
+                      return Column(
+                        children: events
+                            .map(
+                              (e) => _buildEventCard(context, e, secondaryTz),
+                            )
+                            .toList(),
+                      );
+                    },
                   ),
           ),
         ],
@@ -355,9 +438,29 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     );
   }
 
-  Widget _buildEventCard(BuildContext context, EventWithCalendar item) {
+  Widget _buildEventCard(
+    BuildContext context,
+    EventWithCalendar item,
+    String? secondaryTz,
+  ) {
     final event = item.event;
     final calendarColor = _parseColor(item.calendar?.color);
+
+    String? secondaryTimeString;
+    if (secondaryTz != null) {
+      try {
+        final location = tz.getLocation(secondaryTz);
+        final startInTz = tz.TZDateTime.from(event.startDate, location);
+        final endInTz = tz.TZDateTime.from(event.endDate, location);
+
+        // Extract a short code like "EST" or "GMT" or just use the location name
+        final shortName = startInTz.timeZoneName;
+        secondaryTimeString =
+            '[$shortName] ${DateFormat('HH:mm').format(startInTz)} - ${DateFormat('HH:mm').format(endInTz)}';
+      } catch (e) {
+        debugPrint('Error converting timezone: $e');
+      }
+    }
 
     // Glassmorphic effect on the card
     return GestureDetector(
@@ -433,6 +536,29 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       ),
                     ],
                   ),
+                  if (secondaryTimeString != null) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.public,
+                          size: 14,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.secondary.withValues(alpha: 0.8),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          secondaryTimeString,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (event.location != null && event.location!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Row(
@@ -457,6 +583,74 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       ],
                     ),
                   ],
+                  Builder(
+                    builder: (context) {
+                      final meetingUrl = _extractMeetingUrl(event.description);
+                      final hasLocation =
+                          event.location != null && event.location!.isNotEmpty;
+
+                      if (meetingUrl == null && !hasLocation) {
+                        return const SizedBox.shrink();
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12.0),
+                        child: Row(
+                          children: [
+                            if (meetingUrl != null)
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () =>
+                                      launchUrl(Uri.parse(meetingUrl)),
+                                  icon: const Icon(Icons.video_call, size: 18),
+                                  label: const Text('Join Meeting'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (meetingUrl != null && hasLocation)
+                              const SizedBox(width: 8),
+                            if (hasLocation)
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    final url =
+                                        'https://maps.google.com/?q=${Uri.encodeComponent(event.location!)}';
+                                    launchUrl(Uri.parse(url));
+                                  },
+                                  icon: const Icon(Icons.map, size: 18),
+                                  label: const Text('Map'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),

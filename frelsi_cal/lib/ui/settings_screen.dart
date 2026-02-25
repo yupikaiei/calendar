@@ -174,8 +174,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 urlPath:
                     '/local/imported/${DateTime.now().millisecondsSinceEpoch}/',
                 displayName: 'Imported Calendar',
-                color: '#4CAF50',
-                ctag: '',
+                color: const drift.Value('#4CAF50'),
+                cTag: const drift.Value(''),
               ),
             );
 

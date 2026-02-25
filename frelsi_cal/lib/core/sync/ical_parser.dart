@@ -14,24 +14,49 @@ class ICalParser {
         orElse: () => {},
       );
 
-      if (vEvent.isEmpty) return null;
-
-      final uid = vEvent['uid']?.toString() ?? '';
-      if (uid.isEmpty) return null;
-
-      return EventsCompanion(
-        uid: Value(uid),
-        title: Value(vEvent['summary']?.toString() ?? 'Untitled'),
-        startDate: Value(_parseDate(vEvent['dtstart'])),
-        endDate: Value(_parseDate(vEvent['dtend'])),
-        description: Value(vEvent['description']?.toString()),
-        location: Value(vEvent['location']?.toString()),
-        recurrenceRule: Value(vEvent['rrule']?.toString()),
-      );
+      return _mapEvent(vEvent);
     } catch (e) {
       print('Error parsing ICS: $e');
       return null;
     }
+  }
+
+  /// Parses an ICS string into a list of Drift Event objects
+  static List<EventsCompanion> parseEvents(String icsData) {
+    final parsedEvents = <EventsCompanion>[];
+    try {
+      final iCalendar = ICalendar.fromString(icsData);
+      if (iCalendar.data.isEmpty) return parsedEvents;
+
+      for (final element in iCalendar.data) {
+        if (element['type'] == 'VEVENT') {
+          final mapped = _mapEvent(element);
+          if (mapped != null) {
+            parsedEvents.add(mapped);
+          }
+        }
+      }
+    } catch (e) {
+      print('Error parsing multiple ICS elements: $e');
+    }
+    return parsedEvents;
+  }
+
+  static EventsCompanion? _mapEvent(Map<String, dynamic> vEvent) {
+    if (vEvent.isEmpty) return null;
+
+    final uid = vEvent['uid']?.toString() ?? '';
+    if (uid.isEmpty) return null;
+
+    return EventsCompanion(
+      uid: Value(uid),
+      title: Value(vEvent['summary']?.toString() ?? 'Untitled'),
+      startDate: Value(_parseDate(vEvent['dtstart'])),
+      endDate: Value(_parseDate(vEvent['dtend'])),
+      description: Value(vEvent['description']?.toString()),
+      location: Value(vEvent['location']?.toString()),
+      recurrenceRule: Value(vEvent['rrule']?.toString()),
+    );
   }
 
   static DateTime _parseDate(dynamic dtField) {

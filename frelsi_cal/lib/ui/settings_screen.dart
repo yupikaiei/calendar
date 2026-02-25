@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:drift/drift.dart' as drift;
 import '../core/providers/providers.dart';
 import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
+import '../core/sync/sync_manager.dart';
+import '../core/sync/ical_parser.dart';
 import '../core/sync/sync_manager.dart';
 import 'package:timezone/standalone.dart' as tz;
 
@@ -136,6 +140,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _importCalendar() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['ics'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        File file = File(result.files.single.path!);
+        String icsData = await file.readAsString();
+
+        final parsedEvents = ICalParser.parseEvents(icsData);
+        if (parsedEvents.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No events found in this file.')),
+            );
+          }
+          return;
+        }
+
+        // 1. Create a local calendar designated for imports (if it doesn't exist)
+        final db = ref.read(databaseProvider);
+        final importCalId = await db
+            .into(db.calendars)
+            .insert(
+              CalendarsCompanion.insert(
+                urlPath:
+                    '/local/imported/${DateTime.now().millisecondsSinceEpoch}/',
+                displayName: 'Imported Calendar',
+                color: '#4CAF50',
+                ctag: '',
+              ),
+            );
+
+        // 2. Insert all the parsed events into the database
+        for (var eventCompanion in parsedEvents) {
+          await db
+              .into(db.events)
+              .insert(
+                eventCompanion.copyWith(calendarId: drift.Value(importCalId)),
+              );
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Imported ${parsedEvents.length} events successfully!',
+              ),
+            ),
+          );
+          // Sync just to refresh the UI streams if necessary
+          ref.read(syncManagerProvider).performSync();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to import ICS: $e')));
       }
     }
   }
@@ -500,10 +569,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   'My Calendars',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: _showCreateCalendarDialog,
-                  tooltip: 'Create New Calendar',
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.file_download),
+                      onPressed: _importCalendar,
+                      tooltip: 'Import .ics File',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add),
+                      onPressed: _showCreateCalendarDialog,
+                      tooltip: 'Create New Calendar',
+                    ),
+                  ],
                 ),
               ],
             ),

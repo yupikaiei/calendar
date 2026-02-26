@@ -1,16 +1,55 @@
 # frelsi_cal
 
-A new Flutter project.
+An elegant, offline-first Flutter calendar application with CalDAV synchronization and AI-powered Natural Language Processing (NLP) event creation.
 
-## Getting Started
+## ✨ Features
 
-This project is a starting point for a Flutter application.
+- **Offline-First Storage:** Powered by [Drift](https://drift.simonbinder.eu/) (SQLite) for ultra-fast, local interactions.
+- **CalDAV Synchronization:** Securely syncs events with personal CalDAV servers (e.g., Radicale, Nextcloud) to keep your calendars up-to-date across devices.
+- **Natural Language Parsing:** Uses an on-device LLM (`fllama`) to effortlessly parse sentences like *"Lunch with Sarah tomorrow at 1pm"* into structured calendar events.
+- **Advanced Recurrence (RRULE):** Fully supports complex repeating events and instances generation mapped cleanly onto your timeline.
+- **Beautiful Glassmorphic UI:** Modern, deeply atmospheric aesthetics with intuitive scrolling, fading past events, and smart contextual icons.
+- **Timezone Aware:** Gracefully handles primary and secondary timezones for global event cordination.
 
-A few resources to get you started if this is your first Flutter project:
+## 🚀 Getting Started
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Prerequisites
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Ensure you have the Flutter SDK installed on your system.
+For more info, check the [Flutter Installation Guide](https://docs.flutter.dev/get-started/install).
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/frelsi_cal.git
+   cd frelsi_cal
+   ```
+
+2. Get the dependencies:
+   ```bash
+   flutter pub get
+   ```
+
+3. (Optional) Run the `build_runner` to generate SQLite data models if you plan to modify the database schema:
+   ```bash
+   flutter pub run build_runner build --delete-conflicting-outputs
+   ```
+
+4. Run the app:
+   ```bash
+   flutter run
+   ```
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to set up your development environment, run tests, and open Pull Requests.
+
+Please note that this project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+
+## 📄 License
+
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (**CC BY-NC 4.0**) - see the [LICENSE](LICENSE) file for details. This explicitly restricts the use of this project for commercial purposes.
+
+## 🙏 Acknowledgements
+Built natively with [Flutter](https://flutter.dev/). Uses standard CalDAV and iCalendar protocols.

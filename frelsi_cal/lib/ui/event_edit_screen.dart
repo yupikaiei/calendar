@@ -410,7 +410,12 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                                 lastDate: DateTime(2100),
                               );
                               if (date != null) {
-                                setState(() => _startDate = date);
+                                setState(() {
+                                  _startDate = date;
+                                  if (_endDate.isBefore(_startDate)) {
+                                    _endDate = _startDate;
+                                  }
+                                });
                               }
                             },
                           ),
@@ -444,9 +449,12 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                               '${_endDate.year}-${_endDate.month.toString().padLeft(2, '0')}-${_endDate.day.toString().padLeft(2, '0')}',
                             ),
                             onTap: () async {
+                              final initial = _endDate.isBefore(_startDate)
+                                  ? _startDate
+                                  : _endDate;
                               final date = await showDatePicker(
                                 context: context,
-                                initialDate: _endDate,
+                                initialDate: initial,
                                 firstDate: _startDate,
                                 lastDate: DateTime(2100),
                               );

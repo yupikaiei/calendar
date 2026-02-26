@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:ui';
 import 'event_edit_screen.dart';
 import 'settings_screen.dart';
@@ -12,6 +11,7 @@ import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/parsers/nlp_parser.dart';
 import 'package:timezone/standalone.dart' as tz;
+import 'package:rrule/rrule.dart';
 
 class CalendarHomeScreen extends ConsumerStatefulWidget {
   const CalendarHomeScreen({super.key});
@@ -29,9 +29,8 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   int _initialIndex = 0;
   DateTime _selectedDate = DateTime.now();
   final TextEditingController _nlpController = TextEditingController();
-  final SpeechToText _speechToText = SpeechToText();
-  bool _isListening = false;
   bool _hasText = false;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -46,35 +45,10 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     });
   }
 
-  void _initSpeech() async {
-    await _speechToText.initialize();
-    setState(() {});
-  }
-
-  void _startListening() async {
-    await _speechToText.listen(
-      onResult: (result) {
-        setState(() {
-          _nlpController.text = result.recognizedWords;
-          if (result.recognizedWords.isNotEmpty) {
-            _hasText = true;
-          }
-        });
-      },
-    );
-    setState(() => _isListening = true);
-  }
-
-  void _stopListening() async {
-    await _speechToText.stop();
-    setState(() => _isListening = false);
-  }
-
   @override
   void initState() {
     super.initState();
     _nlpController.addListener(_onTextChanged);
-    _initSpeech();
     _generateDays();
 
     // Listen to scroll to update the top week strip if needed
@@ -98,6 +72,68 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     // We will dynamically generate days in the builder now
     // but keep _initialIndex initialized safely
     _initialIndex = 0;
+  }
+
+  void _showModernSnackBar(
+    BuildContext context,
+    String message, {
+    IconData icon = Icons.info_outline,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        padding: EdgeInsets.zero,
+        margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+        duration: duration,
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Color _parseColor(String? colorStr) {
@@ -133,40 +169,78 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   }
 
   void _submitNlpEvent(String text) async {
-    if (text.trim().isEmpty) return;
+    if (text.trim().isEmpty || _isLoading) return;
 
-    // Stop listening if we were dictating
-    if (_isListening) {
-      await _speechToText.stop();
-      setState(() => _isListening = false);
-    }
+    setState(() => _isLoading = true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Extracting details...'),
-        duration: Duration(milliseconds: 500),
-      ),
+    _showModernSnackBar(
+      context,
+      'Extracting details...',
+      icon: Icons.auto_awesome,
+      duration: const Duration(milliseconds: 500),
     );
 
-    final result = await NlpParser.parse(text);
+    final db = ref.read(databaseProvider);
+    final events = await db.getEvents();
+    final now = DateTime.now();
+    final recentEvents = events
+        .where(
+          (e) =>
+              e.startDate.isAfter(now.subtract(const Duration(days: 1))) &&
+              e.startDate.isBefore(now.add(const Duration(days: 14))),
+        )
+        .toList();
+
+    final contextStr = recentEvents
+        .map((e) => "- ${e.title}: ${e.startDate} to ${e.endDate}")
+        .join("\\n");
+
+    print("RAG Context Sent to LLM: \\n$contextStr");
+
+    final result = await NlpParser.parse(text, contextEvents: contextStr);
 
     if (!mounted) return;
+
+    setState(() => _isLoading = false);
 
     _nlpController.clear();
     FocusScope.of(context).unfocus();
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => EventEditScreen(
-        initialDate: result.startDate ?? DateTime.now(),
-        prefilledTitle: result.title,
-        prefilledStartDate: result.startDate,
-        prefilledEndDate: result.endDate,
-        prefilledLocation: result.location,
-      ),
+    _showModernSnackBar(
+      context,
+      result.assistantResponse,
+      icon: Icons.check_circle_outline,
+      duration: const Duration(seconds: 4),
     );
+
+    if (result.intent == NlpIntent.create || result.intent == NlpIntent.edit) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => EventEditScreen(
+          initialDate: result.startDate ?? DateTime.now(),
+          prefilledTitle: result.title,
+          prefilledStartDate: result.startDate,
+          prefilledEndDate: result.endDate,
+          prefilledLocation: result.location,
+        ),
+      );
+    } else if (result.intent == NlpIntent.delete &&
+        result.targetEventTitle != null) {
+      final toDelete = events
+          .where(
+            (e) => e.title.toLowerCase().contains(
+              result.targetEventTitle!.toLowerCase(),
+            ),
+          )
+          .firstOrNull;
+      if (toDelete != null) {
+        await db.delete(db.events).delete(toDelete);
+        // Note: For true CalDAV sync we'd also insert into DeletedEvents table,
+        // but local delete is immediately reflected in the UI.
+      }
+    }
   }
 
   @override
@@ -184,11 +258,11 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
             icon: const Icon(Icons.sync),
             onPressed: () {
               ref.read(syncManagerProvider).performSync();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Syncing with Radicale...'),
-                  behavior: SnackBarBehavior.floating,
-                ),
+              _showModernSnackBar(
+                context,
+                'Syncing with Radicale...',
+                icon: Icons.sync,
+                duration: const Duration(seconds: 2),
               );
             },
           ),
@@ -234,11 +308,49 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                 );
                 uniqueDaysSet.add(today);
 
-                for (var e in allEvents) {
-                  final localStart = e.event.startDate.toLocal();
-                  uniqueDaysSet.add(
-                    DateTime(localStart.year, localStart.month, localStart.day),
-                  );
+                final horizonStart = today.subtract(const Duration(days: 365 * 2));
+                final horizonEnd = today.add(const Duration(days: 365 * 5));
+                final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
+
+                void addDayEvent(DateTime day, EventWithCalendar item) {
+                  dayEventsMap.putIfAbsent(day, () => []).add(item);
+                }
+
+                for (var item in allEvents) {
+                  final e = item.event;
+                  final localStart = e.startDate.toLocal();
+                  final originalDay = DateTime(localStart.year, localStart.month, localStart.day);
+                  
+                  uniqueDaysSet.add(originalDay);
+                  addDayEvent(originalDay, item);
+
+                  if (e.recurrenceRule != null && e.recurrenceRule!.isNotEmpty) {
+                    try {
+                      final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
+                          ? e.recurrenceRule!
+                          : 'RRULE:${e.recurrenceRule!}';
+                      final rrule = RecurrenceRule.fromString(rruleStr);
+                      final instances = rrule.getInstances(
+                        start: e.startDate.isUtc ? e.startDate : e.startDate.toUtc(),
+                        after: horizonStart.toUtc(),
+                        before: horizonEnd.toUtc(),
+                      );
+                      for (final inst in instances) {
+                        final localInst = inst.toLocal();
+                        final instDay = DateTime(localInst.year, localInst.month, localInst.day);
+                        
+                        if (instDay != originalDay) {
+                          uniqueDaysSet.add(instDay);
+                          final offset = localInst.difference(localStart);
+                          final newEvent = e.copyWith(
+                            startDate: e.startDate.add(offset),
+                            endDate: e.endDate.add(offset),
+                          );
+                          addDayEvent(instDay, EventWithCalendar(event: newEvent, calendar: item.calendar));
+                        }
+                      }
+                    } catch (_) {}
+                  }
                 }
 
                 _days = uniqueDaysSet.toList()..sort();
@@ -252,11 +364,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                   initialScrollIndex: _initialIndex,
                   itemBuilder: (context, index) {
                     final date = _days[index];
-                    final dayEvents = allEvents.where((e) {
-                      return e.event.startDate.toLocal().year == date.year &&
-                          e.event.startDate.toLocal().month == date.month &&
-                          e.event.startDate.toLocal().day == date.day;
-                    }).toList();
+                    final dayEvents = dayEventsMap[date] ?? [];
 
                     // Sort day events by time
                     dayEvents.sort(
@@ -304,8 +412,11 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       Expanded(
                         child: TextField(
                           controller: _nlpController,
+                          enabled: !_isLoading,
                           decoration: InputDecoration(
-                            hintText: 'e.g., Lunch with Sarah tomorrow at 1pm',
+                            hintText: _isLoading
+                                ? 'Thinking...'
+                                : 'e.g., Lunch with Sarah tomorrow at 1pm',
                             hintStyle: TextStyle(
                               color: Colors.white.withValues(alpha: 0.5),
                             ),
@@ -326,28 +437,34 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       ),
                       const SizedBox(width: 12),
                       CircleAvatar(
-                        backgroundColor: _isListening
-                            ? Colors.red
-                            : Theme.of(context).colorScheme.primary,
+                        backgroundColor: _isLoading
+                            ? Colors.white.withValues(alpha: 0.1)
+                            : (_hasText
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.white.withValues(alpha: 0.1)),
                         radius: 24,
-                        child: IconButton(
-                          icon: Icon(
-                            _hasText
-                                ? Icons.send
-                                : (_isListening ? Icons.mic : Icons.mic_none),
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          onPressed: () {
-                            if (_hasText && !_isListening) {
-                              _submitNlpEvent(_nlpController.text);
-                            } else {
-                              _speechToText.isNotListening
-                                  ? _startListening()
-                                  : _stopListening();
-                            }
-                          },
-                        ),
+                        child: _isLoading
+                            ? const Padding(
+                                padding: EdgeInsets.all(12.0),
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : IconButton(
+                                icon: Icon(
+                                  Icons.send,
+                                  color: _hasText
+                                      ? Colors.white
+                                      : Colors.white54,
+                                  size: 20,
+                                ),
+                                onPressed: () {
+                                  if (_hasText && !_isLoading) {
+                                    _submitNlpEvent(_nlpController.text);
+                                  }
+                                },
+                              ),
                       ),
                     ],
                   ),
@@ -410,6 +527,19 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                     ),
                   ),
                 ),
+                if (date.month != DateTime.now().month || date.year != DateTime.now().year)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      DateFormat('MMM yy').format(date).toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[500],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -445,6 +575,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   ) {
     final event = item.event;
     final calendarColor = _parseColor(item.calendar?.color);
+    final isPast = event.endDate.toLocal().isBefore(DateTime.now());
 
     String? secondaryTimeString;
     if (secondaryTz != null) {
@@ -462,6 +593,15 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
       }
     }
 
+    // Filter local time variables for all-day resolution
+    final localStart = event.startDate.toLocal();
+    final localEnd = event.endDate.toLocal();
+    final isAllDay = localStart.hour == 0 &&
+        localStart.minute == 0 &&
+        localEnd.hour == 0 &&
+        localEnd.minute == 0 &&
+        localEnd.difference(localStart).inDays >= 1;
+
     // Glassmorphic effect on the card
     return GestureDetector(
       onTap: () {
@@ -471,71 +611,75 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
           backgroundColor: Colors.transparent,
           builder: (context) => EventEditScreen(
             event: event,
-            initialDate: event.startDate.toLocal(),
+            initialDate: localStart,
           ),
         );
       },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                  right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                  bottom: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.1),
-                  ),
-                  left: BorderSide(
-                    color: calendarColor,
-                    width: 4,
-                  ), // Calendar color strip
-                ),
+      child: Opacity(
+        opacity: isPast ? 0.4 : 1.0,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    event.title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  border: Border(
+                    top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    bottom: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.1),
                     ),
+                    left: BorderSide(
+                      color: calendarColor,
+                      width: 4,
+                    ), // Calendar color strip
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 14,
-                        color: Colors.white.withValues(alpha: 0.6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event.title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${DateFormat('HH:mm').format(event.startDate.toLocal())} - ${DateFormat('HH:mm').format(event.endDate.toLocal())}',
-                        style: TextStyle(
-                          fontSize: 14,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          isAllDay ? Icons.today : Icons.access_time,
+                          size: 14,
                           color: Colors.white.withValues(alpha: 0.6),
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isAllDay
+                              ? 'All day'
+                              : '${DateFormat('HH:mm').format(localStart)} - ${DateFormat('HH:mm').format(localEnd)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
                   if (secondaryTimeString != null) ...[
                     const SizedBox(height: 2),
                     Row(
@@ -657,6 +801,6 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }

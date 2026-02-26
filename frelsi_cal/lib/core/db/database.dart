@@ -161,7 +161,16 @@ class AppDatabase extends _$AppDatabase {
     return update(calendars).replace(calendar);
   }
 
-  Future<int> deleteCalendar(int id) {
+  Future<int> deleteCalendar(int id) async {
+    // Manually cascade delete events (and their reminders) for the calendar
+    // since PRAGMA foreign_keys = ON might not be guaranteed across all platforms.
+    final eventsToDelete =
+        await (select(events)..where((e) => e.calendarId.equals(id))).get();
+    for (final event in eventsToDelete) {
+      await (delete(reminders)..where((r) => r.eventId.equals(event.id))).go();
+    }
+    await (delete(events)..where((e) => e.calendarId.equals(id))).go();
+
     return (delete(calendars)..where((c) => c.id.equals(id))).go();
   }
 }

@@ -37,9 +37,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _serverUrlController.text =
-          prefs.getString('server_url') ?? 'http://192.168.2.35:5232';
-      _usernameController.text = prefs.getString('username') ?? 'user';
+      _serverUrlController.text = prefs.getString('server_url') ?? '';
+      _usernameController.text = prefs.getString('username') ?? '';
       _passwordController.text = prefs.getString('password') ?? '';
     });
   }
@@ -55,9 +54,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _saveSettings() async {
     if (_formKey.currentState!.validate()) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('server_url', _serverUrlController.text);
-      await prefs.setString('username', _usernameController.text);
-      await prefs.setString('password', _passwordController.text);
+      await prefs.setString('server_url', _serverUrlController.text.trim());
+      await prefs.setString('username', _usernameController.text.trim());
+      await prefs.setString('password', _passwordController.text.trim());
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -258,7 +257,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     try {
-      final success = await service.updateCalendarName(cal.urlPath, newName);
+      bool success = false;
+      if (cal.urlPath.startsWith('/local/')) {
+        success = true;
+      } else {
+        success = await service.updateCalendarName(cal.urlPath, newName);
+      }
       if (success && mounted) {
         final db = ref.read(databaseProvider);
         await db.updateCalendar(
@@ -328,7 +332,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     try {
-      final success = await service.deleteCalendar(cal.urlPath);
+      bool success = false;
+      if (cal.urlPath.startsWith('/local/')) {
+        success = true;
+      } else {
+        success = await service.deleteCalendar(cal.urlPath);
+      }
       if (success && mounted) {
         final db = ref.read(databaseProvider);
         await db.deleteCalendar(cal.id);
@@ -382,7 +391,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     try {
-      final success = await service.updateCalendarColor(cal.urlPath, hexString);
+      bool success = false;
+      if (cal.urlPath.startsWith('/local/')) {
+        success = true;
+      } else {
+        success = await service.updateCalendarColor(cal.urlPath, hexString);
+      }
       if (success && mounted) {
         final db = ref.read(databaseProvider);
         await db.updateCalendar(

@@ -21,24 +21,51 @@ class ICalParser {
     }
   }
 
-  /// Parses an ICS string into a list of Drift Event objects
   static List<EventsCompanion> parseEvents(String icsData) {
     final parsedEvents = <EventsCompanion>[];
     try {
       final iCalendar = ICalendar.fromString(icsData);
-      if (iCalendar.data.isEmpty) return parsedEvents;
-
-      for (final element in iCalendar.data) {
-        if (element['type'] == 'VEVENT') {
-          final mapped = _mapEvent(element);
-          if (mapped != null) {
-            parsedEvents.add(mapped);
+      if (iCalendar.data.isNotEmpty) {
+        for (final element in iCalendar.data) {
+          if (element['type'] == 'VEVENT') {
+            final mapped = _mapEvent(element);
+            if (mapped != null) {
+              parsedEvents.add(mapped);
+            }
           }
         }
       }
     } catch (e) {
       print('Error parsing multiple ICS elements: $e');
     }
+
+    // If parsing failed or yielded no events (perhaps due to VTIMEZONE or other components crashing the parser),
+    // fallback to extracting and parsing VEVENT blocks individually.
+    if (parsedEvents.isEmpty) {
+      try {
+        final regex = RegExp(r'BEGIN:VEVENT\r?\n(.*?)\r?\nEND:VEVENT', dotAll: true);
+        final matches = regex.allMatches(icsData);
+        for (final match in matches) {
+          final block = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n${match.group(1)}\r\nEND:VEVENT\r\nEND:VCALENDAR';
+          try {
+            final iCal = ICalendar.fromString(block);
+            for (final element in iCal.data) {
+              if (element['type'] == 'VEVENT') {
+                final mapped = _mapEvent(element);
+                if (mapped != null) {
+                  parsedEvents.add(mapped);
+                }
+              }
+            }
+          } catch (_) {
+            // Ignore single event parse failures during fallback
+          }
+        }
+      } catch (e) {
+        print('Error during fallback regex extraction: $e');
+      }
+    }
+
     return parsedEvents;
   }
 

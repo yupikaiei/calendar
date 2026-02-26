@@ -35,10 +35,9 @@ class SyncManager with WidgetsBindingObserver {
 
   Future<CalDavService?> _getCalDavService() async {
     final prefs = await SharedPreferences.getInstance();
-    final serverUrl =
-        prefs.getString('server_url') ?? 'http://192.168.2.35:5232';
-    final username = prefs.getString('username') ?? 'user';
-    final password = prefs.getString('password') ?? 'password';
+    final serverUrl = prefs.getString('server_url') ?? '';
+    final username = prefs.getString('username') ?? '';
+    final password = prefs.getString('password') ?? '';
 
     if (serverUrl.isEmpty || username.isEmpty) {
       return null;
@@ -59,7 +58,7 @@ class SyncManager with WidgetsBindingObserver {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final username = prefs.getString('username') ?? 'user';
+    final username = prefs.getString('username') ?? '';
     final userPath = '/$username/';
 
     _logger.info('Discovering calendars for user $username...');

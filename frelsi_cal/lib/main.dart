@@ -5,7 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'core/providers/providers.dart';
 import 'core/sync/sync_manager.dart';
-import 'ui/calendar_home_screen.dart';
+import 'ui/app_splash_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,7 +58,7 @@ class _FrelsiCalAppState extends ConsumerState<FrelsiCalApp> {
         textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
         useMaterial3: true,
       ),
-      home: const CalendarHomeScreen(),
+      home: const AppSplashScreen(),
     );
   }
 }

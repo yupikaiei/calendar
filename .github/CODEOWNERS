@@ -1,0 +1,10 @@
+# These owners will be the default owners for everything in the repo. Unless a
+# later match takes precedence, @magnosousa will be requested for review when
+# someone opens a pull request.
+* @magnosousa
+
+# In this example, @magnosousa owns any files in the lib directory
+/lib/ @magnosousa
+
+# Any changes to Github actions workflow config files require review from @magnosousa
+/.github/workflows/ @magnosousa

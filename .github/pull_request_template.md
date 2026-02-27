@@ -1,22 +1,24 @@
-## Description
-<!-- Please include a summary of the change and which issue is fixed. -->
-<!-- Provide context on what this PR actually does so that reviewers know where to look. -->
+### What does this PR do?
+<!-- A brief description of the change being made with this pull request. -->
 
-Fixes # (issue)
+### Description of changes
+<!-- Describe the changes in detail, including why they were made and how they fix a problem or add a feature. -->
 
-## Type of Change
-<!-- Please delete options that are not relevant. -->
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation Update
+### Motivation and Context
+<!-- Why is this change required? What problem does it solve? If it fixes an open issue, please link to the issue here. -->
 
-## Checklist:
-<!-- Please check all the boxes that apply: -->
-- [ ] My code follows the code style (e.g. `flutter format .` and `flutter analyze`).
-- [ ] I have performed a self-review of my own code.
-- [ ] I have commented my code, particularly in hard-to-understand areas.
-- [ ] I have made corresponding changes to the documentation.
-- [ ] If I changed `.dart` files annotated for code generation (like drift classes), I ran `build_runner`.
-- [ ] My changes generate no new warnings.
-- [ ] Any dependent changes have been merged and published in downstream modules.
+### How Has This Been Tested?
+<!-- Please describe in detail how you tested your changes. Include details of your testing environment, and the tests you ran to see how your change affects other areas of the code, etc. -->
+
+### Checklist:
+- [ ] My code follows the style guidelines of this project
+- [ ] I have performed a self-review of my own code
+- [ ] I have commented my code, particularly in hard-to-understand areas
+- [ ] I have made corresponding changes to the documentation
+- [ ] My changes generate no new warnings
+- [ ] I have added tests that prove my fix is effective or that my feature works
+- [ ] New and existing unit tests pass locally with my changes
+- [ ] Any dependent changes have been merged and published in downstream modules
+
+### Screenshots or Video (if visual changes):
+<!-- Include visual proofs if your changes are on the UI. -->

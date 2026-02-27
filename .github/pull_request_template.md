@@ -18,7 +18,6 @@
 - [ ] My changes generate no new warnings
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
-- [ ] If I changed .dart files annotated for code generation (e.g. drift classes), I ran build_runner
 - [ ] Any dependent changes have been merged and published in downstream modules
 
 ### Screenshots or Video (if visual changes):

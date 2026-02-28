@@ -6,5 +6,5 @@
 # This rule ensures @yupikaiei owns any files in the lib directory
 /lib/ @yupikaiei
 
-# Any changes to Github actions workflow config files require review from @yupikaiei
+# Any changes to GitHub actions workflow config files require review from @yupikaiei
 /.github/workflows/ @yupikaiei

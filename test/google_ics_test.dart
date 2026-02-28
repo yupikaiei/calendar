@@ -32,10 +32,10 @@ END:VEVENT
 END:VCALENDAR''';
 
     final events = ICalParser.parseEvents(icsStr);
-    print('Parsed events: \${events.length}');
-    for (var e in events) {
-      print('Event title: \${e.title.value}');
-      print('Event start: \${e.startDate.value}');
+    print('Parsed events: ${events.length}');
+    for (final event in events) {
+      print('Event title: ${event.title.value}');
+      print('Event start: ${event.startDate.value}');
     }
   });
 }

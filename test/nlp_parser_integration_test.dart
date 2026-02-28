@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frelsi_cal/core/parsers/nlp_parser.dart';
 

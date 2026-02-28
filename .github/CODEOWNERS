@@ -2,9 +2,3 @@
 # later match takes precedence, @yupikaiei will be requested for review when
 # someone opens a pull request.
 * @yupikaiei
-
-# This rule ensures @yupikaiei owns any files in the lib directory
-/lib/ @yupikaiei
-
-# Any changes to GitHub actions workflow config files require review from @yupikaiei
-/.github/workflows/ @yupikaiei

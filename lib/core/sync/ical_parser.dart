@@ -1,5 +1,5 @@
-import 'package:icalendar_parser/icalendar_parser.dart';
 import 'dart:developer' as developer;
+import 'package:icalendar_parser/icalendar_parser.dart';
 import '../db/database.dart';
 import 'package:drift/drift.dart';
 

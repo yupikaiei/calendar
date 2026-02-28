@@ -8,5 +8,6 @@ void main() {
     after: DateTime.utc(2023, 1, 10),
     before: DateTime.utc(2023, 1, 20),
   );
+  // ignore: avoid_print
   print(instances.toList());
 }

@@ -1,4 +1,5 @@
 import 'package:icalendar_parser/icalendar_parser.dart';
+import 'dart:developer' as developer;
 import '../db/database.dart';
 import 'package:drift/drift.dart';
 
@@ -16,7 +17,7 @@ class ICalParser {
 
       return _mapEvent(vEvent);
     } catch (e) {
-      print('Error parsing ICS: $e');
+      developer.log('Error parsing ICS: $e', name: 'ICalParser', level: 1000);
       return null;
     }
   }
@@ -36,7 +37,11 @@ class ICalParser {
         }
       }
     } catch (e) {
-      print('Error parsing multiple ICS elements: $e');
+      developer.log(
+        'Error parsing multiple ICS elements: $e',
+        name: 'ICalParser',
+        level: 1000,
+      );
     }
 
     // If parsing failed or yielded no events (perhaps due to VTIMEZONE or other components crashing the parser),
@@ -66,7 +71,11 @@ class ICalParser {
           }
         }
       } catch (e) {
-        print('Error during fallback regex extraction: $e');
+        developer.log(
+          'Error during fallback regex extraction: $e',
+          name: 'ICalParser',
+          level: 1000,
+        );
       }
     }
 
@@ -118,11 +127,15 @@ class ICalParser {
     buffer.writeln('DTSTART:${format(event.startDate)}');
     buffer.writeln('DTEND:${format(event.endDate)}');
 
-    if (event.description != null)
+    if (event.description != null) {
       buffer.writeln('DESCRIPTION:${event.description}');
-    if (event.location != null) buffer.writeln('LOCATION:${event.location}');
-    if (event.recurrenceRule != null)
+    }
+    if (event.location != null) {
+      buffer.writeln('LOCATION:${event.location}');
+    }
+    if (event.recurrenceRule != null) {
       buffer.writeln('RRULE:${event.recurrenceRule}');
+    }
 
     buffer.writeln('END:VEVENT');
     buffer.writeln('END:VCALENDAR');

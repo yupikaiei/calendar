@@ -32,10 +32,8 @@ END:VEVENT
 END:VCALENDAR''';
 
     final events = ICalParser.parseEvents(icsStr);
-    print('Parsed events: ${events.length}');
-    for (final event in events) {
-      print('Event title: ${event.title.value}');
-      print('Event start: ${event.startDate.value}');
-    }
+    expect(events.length, 1);
+    expect(events.first.title.value, 'Dinner with Mom');
+    expect(events.first.startDate.value, isA<DateTime>());
   });
 }

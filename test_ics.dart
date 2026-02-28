@@ -12,8 +12,10 @@ END:VEVENT
 END:VCALENDAR''';
 
   final events = ICalParser.parseEvents(icsStr);
+  // ignore: avoid_print
   print('Parsed events: ${events.length}');
   for (var e in events) {
+    // ignore: avoid_print
     print('Event start: ${e.startDate.value}');
   }
 }

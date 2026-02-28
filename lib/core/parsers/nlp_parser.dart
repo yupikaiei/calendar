@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:fllama/fllama.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:io';
@@ -72,7 +73,11 @@ class NlpParser {
 
       _isInit = true;
     } catch (e) {
-      print('nlp_parser error: Failed to initialize fllama: $e');
+      developer.log(
+        'Failed to initialize fllama: $e',
+        name: 'NlpParser',
+        level: 1000,
+      );
     }
   }
 
@@ -174,16 +179,19 @@ Text: "$input"<|im_end|>
       }
 
       if (!response.trim().endsWith('}')) {
-        response = response.trim() + '}';
+        response = '${response.trim()}}';
       }
 
-      print('nlp_parser debug: LLM Response -> $response');
+      developer.log('LLM response: $response', name: 'NlpParser');
 
       // Attempt to clean JSON markdown if the LLM hallucinated it
       response = response.trim();
-      if (response.startsWith('```json')) response = response.substring(7);
-      if (response.endsWith('```'))
+      if (response.startsWith('```json')) {
+        response = response.substring(7);
+      }
+      if (response.endsWith('```')) {
         response = response.substring(0, response.length - 3);
+      }
       response = response.trim();
 
       final decoded = jsonDecode(response);
@@ -223,7 +231,7 @@ Text: "$input"<|im_end|>
         targetEventTitle: decoded['target_title']?.toString(),
       );
     } catch (e) {
-      print('nlp_parser error: LLM Parsing Failed (\$e)');
+      developer.log('LLM parsing failed: $e', name: 'NlpParser', level: 1000);
       throw Exception(
         'Smart Input failed to understand the request. Please try again.',
       );

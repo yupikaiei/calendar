@@ -195,7 +195,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         .map((e) => "- ${e.title}: ${e.startDate} to ${e.endDate}")
         .join("\\n");
 
-    print("RAG Context Sent to LLM: \\n$contextStr");
+    debugPrint("RAG Context Sent to LLM: \\n$contextStr");
 
     final result = await NlpParser.parse(text, contextEvents: contextStr);
 

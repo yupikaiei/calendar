@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'lib/core/sync/ical_parser.dart';
 
 void main() {

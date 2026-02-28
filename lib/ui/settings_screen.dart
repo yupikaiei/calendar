@@ -9,7 +9,6 @@ import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/sync/ical_parser.dart';
-import '../core/sync/sync_manager.dart';
 import 'package:timezone/standalone.dart' as tz;
 
 class SettingsScreen extends ConsumerStatefulWidget {

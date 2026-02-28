@@ -1,4 +1,3 @@
-import 'package:icalendar_parser/icalendar_parser.dart';
 import 'package:frelsi_cal/core/sync/ical_parser.dart';
 
 void main() {

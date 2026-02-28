@@ -43,10 +43,14 @@ class ICalParser {
     // fallback to extracting and parsing VEVENT blocks individually.
     if (parsedEvents.isEmpty) {
       try {
-        final regex = RegExp(r'BEGIN:VEVENT\r?\n(.*?)\r?\nEND:VEVENT', dotAll: true);
+        final regex = RegExp(
+          r'BEGIN:VEVENT\r?\n(.*?)\r?\nEND:VEVENT',
+          dotAll: true,
+        );
         final matches = regex.allMatches(icsData);
         for (final match in matches) {
-          final block = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n${match.group(1)}\r\nEND:VEVENT\r\nEND:VCALENDAR';
+          final block =
+              'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n${match.group(1)}\r\nEND:VEVENT\r\nEND:VCALENDAR';
           try {
             final iCal = ICalendar.fromString(block);
             for (final element in iCal.data) {

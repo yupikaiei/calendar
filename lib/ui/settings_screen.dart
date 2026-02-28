@@ -9,7 +9,6 @@ import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/sync/ical_parser.dart';
-import '../core/sync/sync_manager.dart';
 import 'package:timezone/standalone.dart' as tz;
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -243,6 +242,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _renameCalendar(Calendar cal, String newName) async {
+    final messenger = ScaffoldMessenger.of(context);
     final prefs = await SharedPreferences.getInstance();
     final serverUrl = prefs.getString('server_url') ?? '';
     final username = prefs.getString('username') ?? '';
@@ -268,12 +268,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await db.updateCalendar(
           cal.copyWith(displayName: newName).toCompanion(true),
         );
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Calendar renamed!')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Calendar renamed!')),
+        );
         ref.read(syncManagerProvider).performSync();
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Failed to rename calendar on server.')),
         );
       }
@@ -318,6 +318,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _deleteCalendar(Calendar cal) async {
+    final messenger = ScaffoldMessenger.of(context);
     final prefs = await SharedPreferences.getInstance();
     final serverUrl = prefs.getString('server_url') ?? '';
     final username = prefs.getString('username') ?? '';
@@ -341,12 +342,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (success && mounted) {
         final db = ref.read(databaseProvider);
         await db.deleteCalendar(cal.id);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Calendar deleted.')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Calendar deleted.')),
+        );
         ref.read(syncManagerProvider).performSync();
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Failed to delete calendar on server.')),
         );
       }
@@ -375,8 +376,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _updateColor(Calendar cal, Color color) async {
     final hexString =
-        '#${color.value.toRadixString(16).padLeft(8, '0').toUpperCase()}';
+        '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
 
+    final messenger = ScaffoldMessenger.of(context);
     final prefs = await SharedPreferences.getInstance();
     final serverUrl = prefs.getString('server_url') ?? '';
     final username = prefs.getString('username') ?? '';
@@ -403,12 +405,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           cal.copyWith(color: drift.Value(hexString)).toCompanion(true),
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Calendar color updated!')),
         );
         ref.read(syncManagerProvider).performSync();
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Failed to update color on server.')),
         );
       }

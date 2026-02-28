@@ -1,9 +1,10 @@
 ---
 name: Bug Report
-about: Create a report to help us improve the app.
+about: Create a report to help us improve
 title: "[BUG] "
 labels: bug
 assignees: ''
+
 ---
 
 **Describe the bug**
@@ -23,10 +24,10 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
- - Device: [e.g. Pixel 7, iPhone 14]
- - OS: [e.g. Android 13, iOS 16]
- - Flutter Version: [e.g. 3.19.0]
- - App Version: [e.g. 1.0.0]
+ - Device: [e.g. iPhone 14, Pixel 7, MacBook Pro]
+ - OS: [e.g. iOS 16.4, Android 13, macOS 13.2]
+ - Flutter version: [e.g. 3.10.0]
+ - App version: [e.g. 1.2.3]
 
 **Additional context**
 Add any other context about the problem here.

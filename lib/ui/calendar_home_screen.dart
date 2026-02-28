@@ -195,7 +195,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         .map((e) => "- ${e.title}: ${e.startDate} to ${e.endDate}")
         .join("\\n");
 
-    print("RAG Context Sent to LLM: \\n$contextStr");
+    debugPrint("RAG Context Sent to LLM: \\n$contextStr");
 
     final result = await NlpParser.parse(text, contextEvents: contextStr);
 
@@ -308,7 +308,9 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                 );
                 uniqueDaysSet.add(today);
 
-                final horizonStart = today.subtract(const Duration(days: 365 * 2));
+                final horizonStart = today.subtract(
+                  const Duration(days: 365 * 2),
+                );
                 final horizonEnd = today.add(const Duration(days: 365 * 5));
                 final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
 
@@ -319,26 +321,37 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                 for (var item in allEvents) {
                   final e = item.event;
                   final localStart = e.startDate.toLocal();
-                  final originalDay = DateTime(localStart.year, localStart.month, localStart.day);
-                  
+                  final originalDay = DateTime(
+                    localStart.year,
+                    localStart.month,
+                    localStart.day,
+                  );
+
                   uniqueDaysSet.add(originalDay);
                   addDayEvent(originalDay, item);
 
-                  if (e.recurrenceRule != null && e.recurrenceRule!.isNotEmpty) {
+                  if (e.recurrenceRule != null &&
+                      e.recurrenceRule!.isNotEmpty) {
                     try {
                       final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
                           ? e.recurrenceRule!
                           : 'RRULE:${e.recurrenceRule!}';
                       final rrule = RecurrenceRule.fromString(rruleStr);
                       final instances = rrule.getInstances(
-                        start: e.startDate.isUtc ? e.startDate : e.startDate.toUtc(),
+                        start: e.startDate.isUtc
+                            ? e.startDate
+                            : e.startDate.toUtc(),
                         after: horizonStart.toUtc(),
                         before: horizonEnd.toUtc(),
                       );
                       for (final inst in instances) {
                         final localInst = inst.toLocal();
-                        final instDay = DateTime(localInst.year, localInst.month, localInst.day);
-                        
+                        final instDay = DateTime(
+                          localInst.year,
+                          localInst.month,
+                          localInst.day,
+                        );
+
                         if (instDay != originalDay) {
                           uniqueDaysSet.add(instDay);
                           final offset = localInst.difference(localStart);
@@ -346,7 +359,13 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                             startDate: e.startDate.add(offset),
                             endDate: e.endDate.add(offset),
                           );
-                          addDayEvent(instDay, EventWithCalendar(event: newEvent, calendar: item.calendar));
+                          addDayEvent(
+                            instDay,
+                            EventWithCalendar(
+                              event: newEvent,
+                              calendar: item.calendar,
+                            ),
+                          );
                         }
                       }
                     } catch (_) {}
@@ -527,7 +546,8 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                     ),
                   ),
                 ),
-                if (date.month != DateTime.now().month || date.year != DateTime.now().year)
+                if (date.month != DateTime.now().month ||
+                    date.year != DateTime.now().year)
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(
@@ -596,7 +616,8 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     // Filter local time variables for all-day resolution
     final localStart = event.startDate.toLocal();
     final localEnd = event.endDate.toLocal();
-    final isAllDay = localStart.hour == 0 &&
+    final isAllDay =
+        localStart.hour == 0 &&
         localStart.minute == 0 &&
         localEnd.hour == 0 &&
         localEnd.minute == 0 &&
@@ -609,10 +630,8 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
           context: context,
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
-          builder: (context) => EventEditScreen(
-            event: event,
-            initialDate: localStart,
-          ),
+          builder: (context) =>
+              EventEditScreen(event: event, initialDate: localStart),
         );
       },
       child: Opacity(
@@ -639,7 +658,9 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                   color: Colors.white.withValues(alpha: 0.05),
                   border: Border(
                     top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                    right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    right: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.1),
+                    ),
                     bottom: BorderSide(
                       color: Colors.white.withValues(alpha: 0.1),
                     ),
@@ -680,127 +701,135 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                         ),
                       ],
                     ),
-                  if (secondaryTimeString != null) ...[
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.public,
-                          size: 14,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.secondary.withValues(alpha: 0.8),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          secondaryTimeString,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: Theme.of(context).colorScheme.secondary,
+                    if (secondaryTimeString != null) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.public,
+                            size: 14,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.secondary.withValues(alpha: 0.8),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (event.location != null && event.location!.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          size: 14,
-                          color: Colors.white.withValues(alpha: 0.6),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            event.location!,
+                          const SizedBox(width: 4),
+                          Text(
+                            secondaryTimeString,
                             style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Theme.of(context).colorScheme.secondary,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  Builder(
-                    builder: (context) {
-                      final meetingUrl = _extractMeetingUrl(event.description);
-                      final hasLocation =
-                          event.location != null && event.location!.isNotEmpty;
-
-                      if (meetingUrl == null && !hasLocation) {
-                        return const SizedBox.shrink();
-                      }
-
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 12.0),
-                        child: Row(
-                          children: [
-                            if (meetingUrl != null)
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () =>
-                                      launchUrl(Uri.parse(meetingUrl)),
-                                  icon: const Icon(Icons.video_call, size: 18),
-                                  label: const Text('Join Meeting'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                  ),
-                                ),
+                        ],
+                      ),
+                    ],
+                    if (event.location != null &&
+                        event.location!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            size: 14,
+                            color: Colors.white.withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              event.location!,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.white.withValues(alpha: 0.6),
                               ),
-                            if (meetingUrl != null && hasLocation)
-                              const SizedBox(width: 8),
-                            if (hasLocation)
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () {
-                                    final url =
-                                        'https://maps.google.com/?q=${Uri.encodeComponent(event.location!)}';
-                                    launchUrl(Uri.parse(url));
-                                  },
-                                  icon: const Icon(Icons.map, size: 18),
-                                  label: const Text('Map'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: BorderSide(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.3,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    Builder(
+                      builder: (context) {
+                        final meetingUrl = _extractMeetingUrl(
+                          event.description,
+                        );
+                        final hasLocation =
+                            event.location != null &&
+                            event.location!.isNotEmpty;
+
+                        if (meetingUrl == null && !hasLocation) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 12.0),
+                          child: Row(
+                            children: [
+                              if (meetingUrl != null)
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () =>
+                                        launchUrl(Uri.parse(meetingUrl)),
+                                    icon: const Icon(
+                                      Icons.video_call,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Join Meeting'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
                                       ),
                                     ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
+                                  ),
+                                ),
+                              if (meetingUrl != null && hasLocation)
+                                const SizedBox(width: 8),
+                              if (hasLocation)
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      final url =
+                                          'https://maps.google.com/?q=${Uri.encodeComponent(event.location!)}';
+                                      launchUrl(Uri.parse(url));
+                                    },
+                                    icon: const Icon(Icons.map, size: 18),
+                                    label: const Text('Map'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: BorderSide(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.3,
+                                        ),
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ));
+    );
   }
 }

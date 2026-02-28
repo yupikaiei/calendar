@@ -138,8 +138,9 @@ class SyncManager with WidgetsBindingObserver {
           }
         }
       }
-      if (pushCount > 0)
+      if (pushCount > 0) {
         _logger.info('Pushed $pushCount events to ${dbCal.displayName}.');
+      }
 
       // 2. DELETE local deleted events
       final deletedUids = await _db.getDeletedEventUids();
@@ -155,10 +156,11 @@ class SyncManager with WidgetsBindingObserver {
           pushDeletedCount++;
         }
       }
-      if (pushDeletedCount > 0)
+      if (pushDeletedCount > 0) {
         _logger.info(
           'Synced $pushDeletedCount deletions to ${dbCal.displayName}.',
         );
+      }
 
       // 3. PULL server events if cTag changed
       cTag = await calDavService.getCTag(

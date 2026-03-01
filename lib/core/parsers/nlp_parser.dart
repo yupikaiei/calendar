@@ -175,7 +175,7 @@ class NlpParser {
       final response = await client.send(request);
       if (response.statusCode != 200) {
         throw Exception(
-          'Failed to download MLC model from HuggingFace: ${response.statusCode} ${response.reasonPhrase ?? ''}. Please check your network connection and try again.',
+          'Failed to download MLC model from HuggingFace: ${response.statusCode} ${response.reasonPhrase ?? ''}. Please verify network connectivity and model availability, then try again.',
         );
       }
       final sink = modelFile.openWrite();

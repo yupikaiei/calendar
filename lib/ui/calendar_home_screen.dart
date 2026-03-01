@@ -191,11 +191,13 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
       return 'You\'re free at $timeStr on $dateStr!';
     }
 
-    final busyDescriptions = conflicts.map((e) {
-      final s = DateFormat('h:mm a').format(e.startDate.toLocal());
-      final en = DateFormat('h:mm a').format(e.endDate.toLocal());
-      return '${e.title} ($s - $en)';
-    }).join(', ');
+    final busyDescriptions = conflicts
+        .map((e) {
+          final s = DateFormat('h:mm a').format(e.startDate.toLocal());
+          final en = DateFormat('h:mm a').format(e.endDate.toLocal());
+          return '${e.title} ($s - $en)';
+        })
+        .join(', ');
 
     return 'You\'re busy with: $busyDescriptions';
   }
@@ -227,7 +229,11 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     // For query intents, check the schedule programmatically instead of
     // relying on the small LLM (which hallucinates with context data).
     if (result.intent == NlpIntent.query) {
-      final queryResponse = _checkAvailability(events, result.startDate, result.endDate);
+      final queryResponse = _checkAvailability(
+        events,
+        result.startDate,
+        result.endDate,
+      );
       _showModernSnackBar(
         context,
         queryResponse,

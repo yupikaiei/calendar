@@ -167,6 +167,39 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     return match?.group(0);
   }
 
+  /// Programmatically checks the user's schedule for availability at the given
+  /// time range. This is deterministic and avoids LLM hallucination.
+  String _checkAvailability(
+    List<Event> events,
+    DateTime? queryStart,
+    DateTime? queryEnd,
+  ) {
+    if (queryStart == null) {
+      return "I couldn't determine the time you're asking about.";
+    }
+    final qStart = queryStart;
+    final qEnd = queryEnd ?? qStart.add(const Duration(hours: 1));
+
+    final conflicts = events.where((e) {
+      // Two intervals overlap if one starts before the other ends and vice versa
+      return e.startDate.isBefore(qEnd) && e.endDate.isAfter(qStart);
+    }).toList();
+
+    if (conflicts.isEmpty) {
+      final timeStr = DateFormat('h:mm a').format(qStart);
+      final dateStr = DateFormat('EEEE, MMM d').format(qStart);
+      return 'You\'re free at $timeStr on $dateStr!';
+    }
+
+    final busyDescriptions = conflicts.map((e) {
+      final s = DateFormat('h:mm a').format(e.startDate.toLocal());
+      final en = DateFormat('h:mm a').format(e.endDate.toLocal());
+      return '${e.title} ($s - $en)';
+    }).join(', ');
+
+    return 'You\'re busy with: $busyDescriptions';
+  }
+
   void _submitNlpEvent(String text) async {
     if (text.trim().isEmpty || _isLoading) return;
 
@@ -181,22 +214,8 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
 
     final db = ref.read(databaseProvider);
     final events = await db.getEvents();
-    final now = DateTime.now();
-    final recentEvents = events
-        .where(
-          (e) =>
-              e.startDate.isAfter(now.subtract(const Duration(days: 1))) &&
-              e.startDate.isBefore(now.add(const Duration(days: 14))),
-        )
-        .toList();
 
-    final contextStr = recentEvents
-        .map((e) => "- ${e.title}: ${e.startDate} to ${e.endDate}")
-        .join("\\n");
-
-    debugPrint("RAG Context Sent to LLM: \\n$contextStr");
-
-    final result = await NlpParser.parse(text, contextEvents: contextStr);
+    final result = await NlpParser.parse(text);
 
     if (!mounted) return;
 
@@ -204,6 +223,19 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
 
     _nlpController.clear();
     FocusScope.of(context).unfocus();
+
+    // For query intents, check the schedule programmatically instead of
+    // relying on the small LLM (which hallucinates with context data).
+    if (result.intent == NlpIntent.query) {
+      final queryResponse = _checkAvailability(events, result.startDate, result.endDate);
+      _showModernSnackBar(
+        context,
+        queryResponse,
+        icon: Icons.check_circle_outline,
+        duration: const Duration(seconds: 4),
+      );
+      return;
+    }
 
     _showModernSnackBar(
       context,

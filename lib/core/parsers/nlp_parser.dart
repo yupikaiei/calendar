@@ -82,10 +82,7 @@ class NlpParser {
   }
 
   /// Parses a natural language string into a structured intent result using Qwen2.5.
-  static Future<NlpIntentResult> parse(
-    String input, {
-    String? contextEvents,
-  }) async {
+  static Future<NlpIntentResult> parse(String input) async {
     if (input.trim().isEmpty) {
       return NlpIntentResult(
         intent: NlpIntent.unknown,
@@ -124,34 +121,32 @@ Output MUST be strictly valid JSON without markdown wrapping.
 Never include markdown like ```json.
 Keys MUST be exactly: 
 - "intent": "create", "edit", "delete", "query", or "unknown"
-- "assistant_response": A short, friendly phrase acknowledging the action or answering the query.
+- "assistant_response": A short, friendly phrase acknowledging the action.
 - "title": (string) Only for create/edit
-- "start_date": (ISO8601) Only for create/edit
-- "end_date": (ISO8601) Only for create/edit
+- "start_date": (ISO8601) Only for create/edit/query
+- "end_date": (ISO8601) Only for create/edit/query
 - "location": (string) Only for create/edit
 - "target_title": (string) Only for edit/delete to identify which event to modify
 
-When the intent is "query" (e.g. asking about availability), you MUST look at the Context (User's Schedule). If an event overlaps with the requested time, tell the user they are busy with that event. If clear, tell them they are free.
+For "query" intents (e.g. asking about availability), set start_date and end_date to the time range being asked about and set assistant_response to "Checking schedule...".
+For "create" intents, always proceed. Never refuse or say an event already exists.
 
 Today's Date and Time: ${now.toIso8601String()}
-
-Context (User's Schedule):
-${contextEvents ?? "None"}
 
 Example Input:
 "Am I free tomorrow at 1pm?"
 Example Output:
-{"intent": "query", "assistant_response": "Yes, you have no events scheduled for tomorrow at 1 PM.", "title": null, "start_date": null, "end_date": null, "location": null, "target_title": null}
-
-Example Input:
-"Am I free tonight at 8pm?"
-Example Output:
-{"intent": "query", "assistant_response": "No, you are busy with Dinner with Martina from 8 PM to 10 PM.", "title": null, "start_date": null, "end_date": null, "location": null, "target_title": null}
+{"intent": "query", "assistant_response": "Checking schedule...", "title": null, "start_date": "$tomorrow1pm", "end_date": "$tomorrow2pm", "location": null, "target_title": null}
 
 Example Input:
 "Lunch with Sarah tomorrow at 1pm at Joe's Cafe"
 Example Output:
 {"intent": "create", "assistant_response": "I've set up Lunch with Sarah for 1 PM tomorrow.", "title": "Lunch with Sarah", "start_date": "$tomorrow1pm", "end_date": "$tomorrow2pm", "location": "Joe's Cafe", "target_title": null}
+
+Example Input:
+"Delete my dentist appointment"
+Example Output:
+{"intent": "delete", "assistant_response": "Removing dentist appointment.", "title": null, "start_date": null, "end_date": null, "location": null, "target_title": "dentist appointment"}
 <|im_end|>
 <|im_start|>user
 Text: "$input"<|im_end|>
@@ -235,6 +230,22 @@ Text: "$input"<|im_end|>
       throw Exception(
         'Smart Input failed to understand the request. Please try again.',
       );
+    } finally {
+      // Release the LLM context to free memory and prevent app slowdown
+      await _releaseModel();
+    }
+  }
+
+  /// Releases the LLM context to free memory.
+  static Future<void> _releaseModel() async {
+    if (_contextId != null) {
+      try {
+        await Fllama.instance()?.releaseContext(_contextId!);
+      } catch (e) {
+        developer.log('Failed to release LLM context: $e', name: 'NlpParser');
+      }
+      _contextId = null;
+      _isInit = false;
     }
   }
 }

@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'package:fllama/fllama.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'mlc_engine.dart';
 
 enum NlpIntent { create, edit, delete, query, unknown }
 
@@ -37,51 +38,71 @@ class NlpIntentResult {
 }
 
 class NlpParser {
+  static const _modelFileName = 'Llama-3.2-1B-Instruct-q4f16_1-MLC.bin';
+  static const _modelDownloadUrl =
+      'https://huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC/resolve/main/params_shard_0.bin';
+  static const Map<String, dynamic> _jsonSchema = {
+    'type': 'object',
+    'properties': {
+      'intent': {
+        'type': 'string',
+        'enum': ['query', 'create', 'delete', 'update']
+      },
+      'title': {
+        'anyOf': [
+          {'type': 'string'},
+          {'type': 'null'}
+        ]
+      },
+      'start_date': {
+        'anyOf': [
+          {'type': 'string'},
+          {'type': 'null'}
+        ]
+      },
+      'end_date': {
+        'anyOf': [
+          {'type': 'string'},
+          {'type': 'null'}
+        ]
+      },
+      'location': {
+        'anyOf': [
+          {'type': 'string'},
+          {'type': 'null'}
+        ]
+      },
+      'assistant_response': {'type': 'string'},
+      'target_title': {
+        'anyOf': [
+          {'type': 'string'},
+          {'type': 'null'}
+        ]
+      },
+    },
+    'required': ['intent', 'assistant_response']
+  };
   static bool _isInit = false;
-  static double? _contextId;
+  static bool _engineReady = false;
 
-  /// Initializes FLlama to bind with the local LLM.
+  /// Initializes MLC LLM runtime and ensures model weights exist locally.
   static Future<void> init() async {
     if (_isInit) return;
     try {
-      // Extract the .gguf asset to a local file path so fllama can read it natively
-      final byteData = await rootBundle.load(
-        'assets/models/qwen2.5-0.5b-instruct.gguf',
-      );
-      final targetDirectory = await getApplicationDocumentsDirectory();
-      final modelFile = File(
-        '${targetDirectory.path}/qwen2.5-0.5b-instruct.gguf',
-      );
-      if (!await modelFile.exists()) {
-        await modelFile.writeAsBytes(
-          byteData.buffer.asUint8List(
-            byteData.offsetInBytes,
-            byteData.lengthInBytes,
-          ),
-        );
-      }
-
-      final contextRes = await Fllama.instance()?.initContext(
-        modelFile.path,
-        emitLoadProgress: false,
-        useMlock: false,
-      );
-      final cIdString = contextRes?["contextId"]?.toString();
-      if (cIdString != null && cIdString.isNotEmpty) {
-        _contextId = double.tryParse(cIdString);
-      }
-
+      final modelFile = await _ensureModelFile();
+      await MlcEngine.instance.initialize(modelPath: modelFile.path);
+      _engineReady = true;
       _isInit = true;
     } catch (e) {
       developer.log(
-        'Failed to initialize fllama: $e',
+        'Failed to initialize MLC LLM: $e',
         name: 'NlpParser',
         level: 1000,
       );
     }
   }
 
-  /// Parses a natural language string into a structured intent result using Qwen2.5.
+  /// Parses a natural language string into a structured intent result using Llama 3.2 1B.
   static Future<NlpIntentResult> parse(String input) async {
     if (input.trim().isEmpty) {
       return NlpIntentResult(
@@ -90,93 +111,21 @@ class NlpParser {
       );
     }
 
-    if (!_isInit || _contextId == null) {
+    if (!_isInit || !_engineReady) {
       await init();
     }
 
-    if (_contextId == null) {
+    if (!_engineReady) {
       throw Exception('LLM Engine not initialized properly.');
     }
 
     try {
       final now = DateTime.now();
-      final tomorrow = now.add(const Duration(days: 1));
-      final tomorrow1pm = DateTime(
-        tomorrow.year,
-        tomorrow.month,
-        tomorrow.day,
-        13,
-      ).toIso8601String();
-      final tomorrow2pm = DateTime(
-        tomorrow.year,
-        tomorrow.month,
-        tomorrow.day,
-        14,
-      ).toIso8601String();
-      final systemPrompt =
-          '''
-<|im_start|>system
-Act as the best calendar personal assistant. You are an expert understanding the user intent and extraction event details from natural language text. 
-Your goal is to extract the intent and details from the user's natural language text.
-Output MUST be strictly valid JSON without markdown wrapping.
-Never include markdown like ```json.
-Keys MUST be exactly: 
-- "intent": "create", "edit", "delete", "query", or "unknown"
-- "assistant_response": A short, friendly phrase acknowledging the action.
-- "title": (string) Only for create/edit
-- "start_date": (ISO8601) Only for create/edit/query
-- "end_date": (ISO8601) Only for create/edit/query
-- "location": (string) Only for create/edit
-- "target_title": (string) Only for edit/delete to identify which event to modify
-
-For "query" intents (e.g. asking about availability), set start_date and end_date to the time range being asked about and set assistant_response to "Checking schedule...".
-For "create" intents, always proceed. Never refuse or say an event already exists.
-
-Today's Date and Time: ${now.toIso8601String()}
-
-Example Input:
-"Am I free tomorrow at 1pm?"
-Example Output:
-{"intent": "query", "assistant_response": "Checking schedule...", "title": null, "start_date": "$tomorrow1pm", "end_date": "$tomorrow2pm", "location": null, "target_title": null}
-
-Example Input:
-"Lunch with Sarah tomorrow at 1pm at Joe's Cafe"
-Example Output:
-{"intent": "create", "assistant_response": "I've set up Lunch with Sarah for 1 PM tomorrow.", "title": "Lunch with Sarah", "start_date": "$tomorrow1pm", "end_date": "$tomorrow2pm", "location": "Joe's Cafe", "target_title": null}
-
-Example Input:
-"Delete my dentist appointment"
-Example Output:
-{"intent": "delete", "assistant_response": "Removing dentist appointment.", "title": null, "start_date": null, "end_date": null, "location": null, "target_title": "dentist appointment"}
-<|im_end|>
-<|im_start|>user
-Text: "$input"<|im_end|>
-<|im_start|>assistant
-{''';
-
-      final res = await Fllama.instance()?.completion(
-        _contextId!,
+      final systemPrompt = _buildSystemPrompt(input, now);
+      var response = await MlcEngine.instance.complete(
         prompt: systemPrompt,
-        temperature: 0.1,
-        nPredict: 256,
-        stop: ["}", "<|im_end|>", "```"],
-        penaltyRepeat: 1.18,
-        emitRealtimeCompletion: false,
+        jsonSchema: _jsonSchema,
       );
-
-      String response =
-          '{'; // Assuming the JSON brackets are cut off from the template inject
-      if (res != null) {
-        if (res['text'] != null) {
-          response += res['text'].toString();
-        } else {
-          response += res.toString(); // Fallback to raw map for debugging
-        }
-      }
-
-      if (!response.trim().endsWith('}')) {
-        response = '${response.trim()}}';
-      }
 
       developer.log('LLM response: $response', name: 'NlpParser');
 
@@ -191,41 +140,10 @@ Text: "$input"<|im_end|>
       response = response.trim();
 
       final decoded = jsonDecode(response);
-
-      DateTime? sDate;
-      if (decoded['start_date'] != null) {
-        sDate = DateTime.tryParse(decoded['start_date'].toString());
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Expected JSON object.');
       }
-      DateTime? eDate;
-      if (decoded['end_date'] != null) {
-        eDate = DateTime.tryParse(decoded['end_date'].toString());
-      }
-
-      NlpIntent parsedIntent = NlpIntent.unknown;
-      switch (decoded['intent']?.toString().toLowerCase()) {
-        case 'create':
-          parsedIntent = NlpIntent.create;
-          break;
-        case 'edit':
-          parsedIntent = NlpIntent.edit;
-          break;
-        case 'delete':
-          parsedIntent = NlpIntent.delete;
-          break;
-        case 'query':
-          parsedIntent = NlpIntent.query;
-          break;
-      }
-
-      return NlpIntentResult(
-        intent: parsedIntent,
-        assistantResponse: decoded['assistant_response']?.toString() ?? "Okay.",
-        title: decoded['title']?.toString(),
-        startDate: sDate,
-        endDate: eDate ?? sDate?.add(const Duration(hours: 1)),
-        location: decoded['location']?.toString(),
-        targetEventTitle: decoded['target_title']?.toString(),
-      );
+      return fromJsonMap(decoded);
     } catch (e) {
       developer.log('LLM parsing failed: $e', name: 'NlpParser', level: 1000);
       throw Exception(
@@ -239,14 +157,78 @@ Text: "$input"<|im_end|>
 
   /// Releases the LLM context to free memory.
   static Future<void> _releaseModel() async {
-    if (_contextId != null) {
-      try {
-        await Fllama.instance()?.releaseContext(_contextId!);
-      } catch (e) {
-        developer.log('Failed to release LLM context: $e', name: 'NlpParser');
-      }
-      _contextId = null;
-      _isInit = false;
+    if (_engineReady) {
+      await MlcEngine.instance.release();
+      _engineReady = false;
     }
+    _isInit = false;
+  }
+
+  static Future<File> _ensureModelFile() async {
+    final targetDirectory = await getApplicationDocumentsDirectory();
+    final modelFile = File('${targetDirectory.path}/$_modelFileName');
+    if (await modelFile.exists()) return modelFile;
+
+    final response = await http.get(Uri.parse(_modelDownloadUrl));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to download MLC model: ${response.statusCode}');
+    }
+    await modelFile.writeAsBytes(response.bodyBytes, flush: true);
+    return modelFile;
+  }
+
+  @visibleForTesting
+  static NlpIntentResult fromJsonMap(Map<String, dynamic> decoded) {
+    DateTime? sDate;
+    if (decoded['start_date'] != null) {
+      sDate = DateTime.tryParse(decoded['start_date'].toString());
+    }
+    DateTime? eDate;
+    if (decoded['end_date'] != null) {
+      eDate = DateTime.tryParse(decoded['end_date'].toString());
+    }
+
+    NlpIntent parsedIntent = NlpIntent.unknown;
+    switch (decoded['intent']?.toString().toLowerCase()) {
+      case 'create':
+        parsedIntent = NlpIntent.create;
+        break;
+      case 'update':
+      case 'edit':
+        parsedIntent = NlpIntent.edit;
+        break;
+      case 'delete':
+        parsedIntent = NlpIntent.delete;
+        break;
+      case 'query':
+        parsedIntent = NlpIntent.query;
+        break;
+    }
+
+    return NlpIntentResult(
+      intent: parsedIntent,
+      assistantResponse: decoded['assistant_response']?.toString() ?? 'Okay.',
+      title: decoded['title']?.toString(),
+      startDate: sDate,
+      endDate: eDate ?? sDate?.add(const Duration(hours: 1)),
+      location: decoded['location']?.toString(),
+      targetEventTitle: decoded['target_title']?.toString(),
+    );
+  }
+
+  static String _buildSystemPrompt(String input, DateTime now) {
+    return '''
+You are a calendar assistant that extracts structured event intent from user text.
+Return only valid JSON (no markdown).
+Use this exact JSON schema:
+${jsonEncode(_jsonSchema)}
+Rules:
+- intent must be one of: query, create, delete, update.
+- Convert relative dates like "tomorrow" from this datetime: ${now.toIso8601String()}.
+- Always include assistant_response as a short friendly sentence.
+- Use ISO8601 for start_date and end_date.
+- Use null when a value is unknown.
+User text: "$input"
+''';
   }
 }

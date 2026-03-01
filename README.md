@@ -6,7 +6,7 @@ An elegant, offline-first Flutter calendar application with CalDAV synchronizati
 
 - **Offline-First Storage:** Powered by [Drift](https://drift.simonbinder.eu/) (SQLite) for ultra-fast, local interactions.
 - **CalDAV Synchronization:** Securely syncs events with personal CalDAV servers (e.g., Radicale, Nextcloud) to keep your calendars up-to-date across devices.
-- **Natural Language Parsing:** Uses an on-device LLM (`fllama`) to effortlessly parse sentences like *"Lunch with Sarah tomorrow at 1pm"* into structured calendar events.
+- **Natural Language Parsing:** Uses an on-device MLC LLM runtime with **Llama 3.2 1B** to parse sentences like *"Lunch with Sarah tomorrow at 1pm"* into structured calendar events.
 - **Advanced Recurrence (RRULE):** Fully supports complex repeating events and instances generation mapped cleanly onto your timeline.
 - **Beautiful Glassmorphic UI:** Modern, deeply atmospheric aesthetics with intuitive scrolling, fading past events, and smart contextual icons.
 - **Timezone Aware:** Gracefully handles primary and secondary timezones for global event cordination.

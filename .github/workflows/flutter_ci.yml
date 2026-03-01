@@ -6,6 +6,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   build_and_test:
     if: github.event_name == 'pull_request'

@@ -169,13 +169,20 @@ class NlpParser {
     final modelFile = File('${targetDirectory.path}/$_modelFileName');
     if (await modelFile.exists()) return modelFile;
 
-    final response = await http.get(Uri.parse(_modelDownloadUrl));
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to download MLC model: ${response.statusCode} ${response.reasonPhrase ?? ''}',
-      );
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(_modelDownloadUrl));
+      final response = await client.send(request);
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Failed to download MLC model: ${response.statusCode} ${response.reasonPhrase ?? ''}',
+        );
+      }
+      final sink = modelFile.openWrite();
+      await response.stream.pipe(sink);
+    } finally {
+      client.close();
     }
-    await modelFile.writeAsBytes(response.bodyBytes, flush: true);
     return modelFile;
   }
 

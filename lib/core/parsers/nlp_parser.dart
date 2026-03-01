@@ -38,7 +38,7 @@ class NlpIntentResult {
 }
 
 class NlpParser {
-  static const _modelFileName = 'Llama-3.2-1B-Instruct-q4f16_1-MLC.bin';
+  static const _modelFileName = 'params_shard_0.bin';
   static const _modelDownloadUrl =
       'https://huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC/resolve/main/params_shard_0.bin';
   static const Map<String, dynamic> _jsonSchema = {
@@ -171,7 +171,9 @@ class NlpParser {
 
     final response = await http.get(Uri.parse(_modelDownloadUrl));
     if (response.statusCode != 200) {
-      throw Exception('Failed to download MLC model: ${response.statusCode}');
+      throw Exception(
+        'Failed to download MLC model: ${response.statusCode} ${response.reasonPhrase ?? ''}',
+      );
     }
     await modelFile.writeAsBytes(response.bodyBytes, flush: true);
     return modelFile;

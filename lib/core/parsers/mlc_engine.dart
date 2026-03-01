@@ -98,12 +98,14 @@ class MlcEngine {
         _MlcEngineDestroyNative,
         _MlcEngineDestroyDart
       >('mlc_engine_destroy');
-      _engineChat = _library!.lookupFunction<_MlcEngineChatNative, _MlcEngineChatDart>(
-        'mlc_engine_chat_completion',
-      );
-      _freeString = _library!.lookupFunction<_MlcFreeStringNative, _MlcFreeStringDart>(
-        'mlc_free_string',
-      );
+      _engineChat = _library!.lookupFunction<
+        _MlcEngineChatNative,
+        _MlcEngineChatDart
+      >('mlc_engine_chat_completion');
+      _freeString = _library!.lookupFunction<
+        _MlcFreeStringNative,
+        _MlcFreeStringDart
+      >('mlc_free_string');
     } catch (e) {
       developer.log('Unable to load MLC FFI bindings: $e', name: 'MlcEngine');
       _library = null;

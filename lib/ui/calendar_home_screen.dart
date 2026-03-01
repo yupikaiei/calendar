@@ -29,20 +29,19 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   int _initialIndex = 0;
   DateTime _selectedDate = DateTime.now();
   final TextEditingController _nlpController = TextEditingController();
-  bool _hasText = false;
+  final ValueNotifier<bool> _hasText = ValueNotifier(false);
   bool _isLoading = false;
 
   @override
   void dispose() {
     _nlpController.removeListener(_onTextChanged);
     _nlpController.dispose();
+    _hasText.dispose();
     super.dispose();
   }
 
   void _onTextChanged() {
-    setState(() {
-      _hasText = _nlpController.text.isNotEmpty;
-    });
+    _hasText.value = _nlpController.text.isNotEmpty;
   }
 
   @override
@@ -372,6 +371,13 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                   }
                 }
 
+                // Pre-sort all day events by time (once per data update, not per item build)
+                for (final dayEvents in dayEventsMap.values) {
+                  dayEvents.sort(
+                    (a, b) => a.event.startDate.compareTo(b.event.startDate),
+                  );
+                }
+
                 _days = uniqueDaysSet.toList()..sort();
                 _initialIndex = _days.indexOf(today);
                 if (_initialIndex < 0) _initialIndex = 0;
@@ -384,11 +390,6 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                   itemBuilder: (context, index) {
                     final date = _days[index];
                     final dayEvents = dayEventsMap[date] ?? [];
-
-                    // Sort day events by time
-                    dayEvents.sort(
-                      (a, b) => a.event.startDate.compareTo(b.event.startDate),
-                    );
 
                     final isToday =
                         date.day == todayNow.day &&
@@ -405,60 +406,55 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
           // Smart Input Bar
           Align(
             alignment: Alignment.bottomCenter,
-            child: ClipRRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ).copyWith(
-                        bottom: MediaQuery.of(context).padding.bottom + 12,
-                      ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surface.withValues(alpha: 0.7),
-                    border: Border(
-                      top: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.1),
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _nlpController,
-                          enabled: !_isLoading,
-                          decoration: InputDecoration(
-                            hintText: _isLoading
-                                ? 'Thinking...'
-                                : 'e.g., Lunch with Sarah tomorrow at 1pm',
-                            hintStyle: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.5),
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(30),
-                              borderSide: BorderSide.none,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.05),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 14,
-                            ),
-                          ),
-                          style: const TextStyle(color: Colors.white),
-                          onSubmitted: _submitNlpEvent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ).copyWith(bottom: MediaQuery.of(context).padding.bottom + 12),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.7),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _nlpController,
+                      enabled: !_isLoading,
+                      decoration: InputDecoration(
+                        hintText: _isLoading
+                            ? 'Thinking...'
+                            : 'e.g., Lunch with Sarah tomorrow at 1pm',
+                        hintStyle: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.05),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      CircleAvatar(
+                      style: const TextStyle(color: Colors.white),
+                      onSubmitted: _submitNlpEvent,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _hasText,
+                    builder: (context, hasText, _) {
+                      return CircleAvatar(
                         backgroundColor: _isLoading
                             ? Colors.white.withValues(alpha: 0.1)
-                            : (_hasText
+                            : (hasText
                                   ? Theme.of(context).colorScheme.primary
                                   : Colors.white.withValues(alpha: 0.1)),
                         radius: 24,
@@ -473,21 +469,21 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                             : IconButton(
                                 icon: Icon(
                                   Icons.send,
-                                  color: _hasText
+                                  color: hasText
                                       ? Colors.white
                                       : Colors.white54,
                                   size: 20,
                                 ),
                                 onPressed: () {
-                                  if (_hasText && !_isLoading) {
+                                  if (hasText && !_isLoading) {
                                     _submitNlpEvent(_nlpController.text);
                                   }
                                 },
                               ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -634,198 +630,185 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
               EventEditScreen(event: event, initialDate: localStart),
         );
       },
-      child: Opacity(
-        opacity: isPast ? 0.4 : 1.0,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        foregroundDecoration: isPast
+            ? BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(16),
+              )
+            : null,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                right: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                left: BorderSide(
+                  color: calendarColor,
+                  width: 4,
+                ), // Calendar color strip
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  border: Border(
-                    top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                    right: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                    bottom: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                    left: BorderSide(
-                      color: calendarColor,
-                      width: 4,
-                    ), // Calendar color strip
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 4),
+                Row(
                   children: [
+                    Icon(
+                      isAllDay ? Icons.today : Icons.access_time,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.6),
+                    ),
+                    const SizedBox(width: 4),
                     Text(
-                      event.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
+                      isAllDay
+                          ? 'All day'
+                          : '${DateFormat('HH:mm').format(localStart)} - ${DateFormat('HH:mm').format(localEnd)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withValues(alpha: 0.6),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          isAllDay ? Icons.today : Icons.access_time,
-                          size: 14,
-                          color: Colors.white.withValues(alpha: 0.6),
+                  ],
+                ),
+                if (secondaryTimeString != null) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.public,
+                        size: 14,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.secondary.withValues(alpha: 0.8),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        secondaryTimeString,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).colorScheme.secondary,
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          isAllDay
-                              ? 'All day'
-                              : '${DateFormat('HH:mm').format(localStart)} - ${DateFormat('HH:mm').format(localEnd)}',
+                      ),
+                    ],
+                  ),
+                ],
+                if (event.location != null && event.location!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          event.location!,
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.white.withValues(alpha: 0.6),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ],
-                    ),
-                    if (secondaryTimeString != null) ...[
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.public,
-                            size: 14,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.secondary.withValues(alpha: 0.8),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            secondaryTimeString,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Theme.of(context).colorScheme.secondary,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
-                    if (event.location != null &&
-                        event.location!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Row(
+                  ),
+                ],
+                Builder(
+                  builder: (context) {
+                    final meetingUrl = _extractMeetingUrl(event.description);
+                    final hasLocation =
+                        event.location != null && event.location!.isNotEmpty;
+
+                    if (meetingUrl == null && !hasLocation) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12.0),
+                      child: Row(
                         children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: Colors.white.withValues(alpha: 0.6),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              event.location!,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.white.withValues(alpha: 0.6),
+                          if (meetingUrl != null)
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () =>
+                                    launchUrl(Uri.parse(meetingUrl)),
+                                icon: const Icon(Icons.video_call, size: 18),
+                                label: const Text('Join Meeting'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
+                          if (meetingUrl != null && hasLocation)
+                            const SizedBox(width: 8),
+                          if (hasLocation)
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  final url =
+                                      'https://maps.google.com/?q=${Uri.encodeComponent(event.location!)}';
+                                  launchUrl(Uri.parse(url));
+                                },
+                                icon: const Icon(Icons.map, size: 18),
+                                label: const Text('Map'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                    ],
-                    Builder(
-                      builder: (context) {
-                        final meetingUrl = _extractMeetingUrl(
-                          event.description,
-                        );
-                        final hasLocation =
-                            event.location != null &&
-                            event.location!.isNotEmpty;
-
-                        if (meetingUrl == null && !hasLocation) {
-                          return const SizedBox.shrink();
-                        }
-
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 12.0),
-                          child: Row(
-                            children: [
-                              if (meetingUrl != null)
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () =>
-                                        launchUrl(Uri.parse(meetingUrl)),
-                                    icon: const Icon(
-                                      Icons.video_call,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Join Meeting'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              if (meetingUrl != null && hasLocation)
-                                const SizedBox(width: 8),
-                              if (hasLocation)
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      final url =
-                                          'https://maps.google.com/?q=${Uri.encodeComponent(event.location!)}';
-                                      launchUrl(Uri.parse(url));
-                                    },
-                                    icon: const Icon(Icons.map, size: 18),
-                                    label: const Text('Map'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      side: BorderSide(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                    );
+                  },
                 ),
-              ),
+              ],
             ),
           ),
         ),

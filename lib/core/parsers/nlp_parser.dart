@@ -125,7 +125,7 @@ class NlpParser {
         intent: NlpIntent.unknown,
         assistantResponse:
             _initFailureReason ??
-            'Smart Input is not available right now. Please try again.',
+            'Smart Input requires additional resources. Please check your network/device storage and try again.',
       );
     }
 

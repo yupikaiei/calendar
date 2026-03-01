@@ -84,6 +84,7 @@ class NlpParser {
   };
   static bool _isInit = false;
   static bool _engineReady = false;
+  static String? _initFailureReason;
 
   /// Initializes MLC LLM runtime and ensures model weights exist locally.
   static Future<void> init() async {
@@ -93,7 +94,11 @@ class NlpParser {
       await MlcEngine.instance.initialize(modelPath: modelFile.path);
       _engineReady = true;
       _isInit = true;
+      _initFailureReason = null;
     } catch (e) {
+      _isInit = false;
+      _engineReady = false;
+      _initFailureReason = e.toString();
       developer.log(
         'Failed to initialize MLC LLM: $e',
         name: 'NlpParser',
@@ -116,7 +121,12 @@ class NlpParser {
     }
 
     if (!_engineReady) {
-      throw Exception('LLM Engine not initialized properly.');
+      return NlpIntentResult(
+        intent: NlpIntent.unknown,
+        assistantResponse:
+            _initFailureReason ??
+            'Smart Input is not available right now. Please try again.',
+      );
     }
 
     try {

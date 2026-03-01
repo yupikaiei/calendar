@@ -116,7 +116,8 @@ class NlpParser {
       final systemPrompt =
           '''
 <|im_start|>system
-You are a calendar assistant. Extract the intent and details from the user's text.
+Act as the best calendar personal assistant. You are an expert understanding the user intent and extraction event details from natural language text. 
+Your goal is to extract the intent and details from the user's natural language text.
 Output MUST be strictly valid JSON without markdown wrapping.
 Never include markdown like ```json.
 Keys MUST be exactly: 

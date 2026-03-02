@@ -1,9 +1,6 @@
 import 'dart:convert';
-import 'dart:developer' as developer;
-import 'package:fllama/fllama.dart';
-import 'package:flutter/services.dart' show rootBundle;
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter_gemma/flutter_gemma.dart';
 
 enum NlpIntent { create, edit, delete, query, unknown }
 
@@ -38,50 +35,52 @@ class NlpIntentResult {
 
 class NlpParser {
   static bool _isInit = false;
-  static double? _contextId;
+  static dynamic _model;
 
-  /// Initializes FLlama to bind with the local LLM.
+    static const _modelName = 'gemma3-270m-it-q8.task';
+    static const _modelUrl =
+      'https://huggingface.co/litert-community/gemma-3-270m-it/resolve/main/gemma3-270m-it-q8.task';
+
+  /// Ensures the Gemma model is installed and ready to use.
   static Future<void> init() async {
     if (_isInit) return;
     try {
-      // Extract the .gguf asset to a local file path so fllama can read it natively
-      final byteData = await rootBundle.load(
-        'assets/models/qwen2.5-0.5b-instruct.gguf',
-      );
-      final targetDirectory = await getApplicationDocumentsDirectory();
-      final modelFile = File(
-        '${targetDirectory.path}/qwen2.5-0.5b-instruct.gguf',
-      );
-      if (!await modelFile.exists()) {
-        await modelFile.writeAsBytes(
-          byteData.buffer.asUint8List(
-            byteData.offsetInBytes,
-            byteData.lengthInBytes,
-          ),
-        );
+      final installed = await FlutterGemma.isModelInstalled(_modelName);
+      if (!installed) {
+        debugPrint('[NlpParser] Installing Gemma model from network...');
+        await FlutterGemma.installModel(modelType: ModelType.gemmaIt)
+            .fromNetwork(_modelUrl)
+            .install();
+        debugPrint('[NlpParser] Model installation complete');
       }
 
-      final contextRes = await Fllama.instance()?.initContext(
-        modelFile.path,
-        emitLoadProgress: false,
-        useMlock: false,
+      _model = await FlutterGemma.getActiveModel(
+        maxTokens: 2048,
+        preferredBackend: PreferredBackend.cpu,
       );
-      final cIdString = contextRes?["contextId"]?.toString();
-      if (cIdString != null && cIdString.isNotEmpty) {
-        _contextId = double.tryParse(cIdString);
-      }
-
       _isInit = true;
-    } catch (e) {
-      developer.log(
-        'Failed to initialize fllama: $e',
-        name: 'NlpParser',
-        level: 1000,
-      );
+      debugPrint('[NlpParser] Gemma initialized successfully');
+    } catch (e, stack) {
+      debugPrint('[NlpParser] Failed to initialize Gemma: $e\n$stack');
+      _model = null;
+      _isInit = false;
     }
   }
 
-  /// Parses a natural language string into a structured intent result using Qwen2.5.
+  /// Releases the Gemma model to free memory.
+  static Future<void> _releaseModel() async {
+    if (_model != null) {
+      try {
+        await _model.close();
+      } catch (e) {
+        debugPrint('[NlpParser] Failed to release model: $e');
+      }
+      _model = null;
+      _isInit = false;
+    }
+  }
+
+  /// Parses a natural language string into a structured intent result using Gemma.
   static Future<NlpIntentResult> parse(String input) async {
     if (input.trim().isEmpty) {
       return NlpIntentResult(
@@ -90,12 +89,12 @@ class NlpParser {
       );
     }
 
-    if (!_isInit || _contextId == null) {
+    if (!_isInit || _model == null) {
       await init();
     }
 
-    if (_contextId == null) {
-      throw Exception('LLM Engine not initialized properly.');
+    if (_model == null) {
+      throw Exception('Model not initialized properly.');
     }
 
     try {
@@ -113,9 +112,8 @@ class NlpParser {
         tomorrow.day,
         14,
       ).toIso8601String();
-      final systemPrompt =
-          '''
-<|im_start|>system
+
+      final systemPrompt = '''
 Act as the best calendar personal assistant. You are an expert understanding the user intent and extraction event details from natural language text. 
 Your goal is to extract the intent and details from the user's natural language text.
 Output MUST be strictly valid JSON without markdown wrapping.
@@ -148,40 +146,24 @@ Example Input:
 "Delete my dentist appointment"
 Example Output:
 {"intent": "delete", "assistant_response": "Removing dentist appointment.", "title": null, "start_date": null, "end_date": null, "location": null, "target_title": "dentist appointment"}
-<|im_end|>
-<|im_start|>user
-Text: "$input"<|im_end|>
-<|im_start|>assistant
-{''';
+''';
 
-      final res = await Fllama.instance()?.completion(
-        _contextId!,
-        prompt: systemPrompt,
-        temperature: 0.1,
-        nPredict: 256,
-        stop: ["}", "<|im_end|>", "```"],
-        penaltyRepeat: 1.18,
-        emitRealtimeCompletion: false,
-      );
+      // create a chat session and add messages
+      final chat = await _model.createChat(temperature: 0.1);
+      await chat.addQueryChunk(Message.systemInfo(text: systemPrompt));
+      await chat.addQueryChunk(Message.text(text: input, isUser: true));
 
-      String response =
-          '{'; // Assuming the JSON brackets are cut off from the template inject
-      if (res != null) {
-        if (res['text'] != null) {
-          response += res['text'].toString();
-        } else {
-          response += res.toString(); // Fallback to raw map for debugging
-        }
+      String responseText = '';
+      final resp = await chat.generateChatResponse();
+      if (resp is TextResponse) {
+        responseText = resp.token;
+      } else {
+        responseText = resp.toString();
       }
 
-      if (!response.trim().endsWith('}')) {
-        response = '${response.trim()}}';
-      }
+      // No chat.close() needed for InferenceChat in flutter_gemma
 
-      developer.log('LLM response: $response', name: 'NlpParser');
-
-      // Attempt to clean JSON markdown if the LLM hallucinated it
-      response = response.trim();
+      String response = responseText.trim();
       if (response.startsWith('```json')) {
         response = response.substring(7);
       }
@@ -189,6 +171,8 @@ Text: "$input"<|im_end|>
         response = response.substring(0, response.length - 3);
       }
       response = response.trim();
+
+      debugPrint('[NlpParser] LLM response: $response');
 
       final decoded = jsonDecode(response);
 
@@ -227,26 +211,14 @@ Text: "$input"<|im_end|>
         targetEventTitle: decoded['target_title']?.toString(),
       );
     } catch (e) {
-      developer.log('LLM parsing failed: $e', name: 'NlpParser', level: 1000);
+      debugPrint('[NlpParser] LLM parsing failed: $e');
       throw Exception(
         'Smart Input failed to understand the request. Please try again.',
       );
     } finally {
-      // Release the LLM context to free memory and prevent app slowdown
+      // Release the model to free memory and prevent app slowdown
       await _releaseModel();
     }
   }
-
-  /// Releases the LLM context to free memory.
-  static Future<void> _releaseModel() async {
-    if (_contextId != null) {
-      try {
-        await Fllama.instance()?.releaseContext(_contextId!);
-      } catch (e) {
-        developer.log('Failed to release LLM context: $e', name: 'NlpParser');
-      }
-      _contextId = null;
-      _isInit = false;
-    }
-  }
 }
+

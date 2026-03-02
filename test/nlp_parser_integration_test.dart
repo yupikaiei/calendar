@@ -12,6 +12,6 @@ void main() {
       expect(result.intent, isNotNull);
       expect(result.assistantResponse, isNotNull);
     },
-    skip: true, // Requires large model file (.gguf) not available in CI
+    skip: true, // Requires Gemma model download; network access not available in CI
   );
 }

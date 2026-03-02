@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:logging/logging.dart';
@@ -9,6 +10,10 @@ import 'ui/app_splash_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // optional HuggingFace token for gated models; can be passed via --dart-define
+  FlutterGemma.initialize(
+    huggingFaceToken: const String.fromEnvironment('HUGGINGFACE_TOKEN'),
+  );
   tz.initializeTimeZones();
 
   Logger.root.level = Level.ALL;

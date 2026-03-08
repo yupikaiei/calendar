@@ -12,6 +12,124 @@ import '../core/sync/sync_manager.dart';
 import '../core/parsers/nlp_parser.dart';
 import 'package:timezone/standalone.dart' as tz;
 import 'package:rrule/rrule.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+
+// Smart Input Bar as a reusable widget
+class SmartInputBar extends StatefulWidget {
+  final Function(String) onSubmit;
+  final bool isLoading;
+  const SmartInputBar({Key? key, required this.onSubmit, this.isLoading = false}) : super(key: key);
+
+  @override
+  State<SmartInputBar> createState() => _SmartInputBarState();
+}
+
+class _SmartInputBarState extends State<SmartInputBar> {
+  final TextEditingController _controller = TextEditingController();
+  final ValueNotifier<bool> _hasText = ValueNotifier(false);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    _hasText.value = _controller.text.isNotEmpty;
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onTextChanged);
+    _controller.dispose();
+    _hasText.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              enabled: !widget.isLoading,
+              decoration: InputDecoration(
+                hintText: widget.isLoading
+                    ? 'Thinking...'
+                    : 'e.g., Lunch with Sarah tomorrow at 1pm',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+              ),
+              style: const TextStyle(color: Colors.white),
+              onSubmitted: (text) {
+                if (text.isNotEmpty && !widget.isLoading) {
+                  widget.onSubmit(text);
+                  Navigator.of(context).pop();
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          ValueListenableBuilder<bool>(
+            valueListenable: _hasText,
+            builder: (context, hasText, _) {
+              return CircleAvatar(
+                backgroundColor: widget.isLoading
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : (hasText
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.white.withValues(alpha: 0.1)),
+                radius: 24,
+                child: widget.isLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : IconButton(
+                        icon: Icon(
+                          Icons.send,
+                          color: hasText ? Colors.white : Colors.white54,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          if (hasText && !widget.isLoading) {
+                            widget.onSubmit(_controller.text);
+                            Navigator.of(context).pop();
+                          }
+                        },
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class CalendarHomeScreen extends ConsumerStatefulWidget {
   const CalendarHomeScreen({super.key});
@@ -317,216 +435,183 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         children: [
           // Background Gradient
           Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF1E1E2C), Color(0xFF12121D)],
-              ),
-            ),
-          ),
-
-          SafeArea(
-            child: StreamBuilder<List<EventWithCalendar>>(
-              stream: ref.watch(databaseProvider).watchEventsWithCalendars(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final allEvents = snapshot.data ?? [];
-
-                // Extract unique days with events
-                final Set<DateTime> uniqueDaysSet = {};
-                final todayNow = DateTime.now();
-                final today = DateTime(
-                  todayNow.year,
-                  todayNow.month,
-                  todayNow.day,
-                );
-                uniqueDaysSet.add(today);
-
-                final horizonStart = today.subtract(
-                  const Duration(days: 365 * 2),
-                );
-                final horizonEnd = today.add(const Duration(days: 365 * 5));
-                final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
-
-                void addDayEvent(DateTime day, EventWithCalendar item) {
-                  dayEventsMap.putIfAbsent(day, () => []).add(item);
-                }
-
-                for (var item in allEvents) {
-                  final e = item.event;
-                  final localStart = e.startDate.toLocal();
-                  final originalDay = DateTime(
-                    localStart.year,
-                    localStart.month,
-                    localStart.day,
-                  );
-
-                  uniqueDaysSet.add(originalDay);
-                  addDayEvent(originalDay, item);
-
-                  if (e.recurrenceRule != null &&
-                      e.recurrenceRule!.isNotEmpty) {
-                    try {
-                      final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
-                          ? e.recurrenceRule!
-                          : 'RRULE:${e.recurrenceRule!}';
-                      final rrule = RecurrenceRule.fromString(rruleStr);
-                      final instances = rrule.getInstances(
-                        start: e.startDate.isUtc
-                            ? e.startDate
-                            : e.startDate.toUtc(),
-                        after: horizonStart.toUtc(),
-                        before: horizonEnd.toUtc(),
-                      );
-                      for (final inst in instances) {
-                        final localInst = inst.toLocal();
-                        final instDay = DateTime(
-                          localInst.year,
-                          localInst.month,
-                          localInst.day,
-                        );
-
-                        if (instDay != originalDay) {
-                          uniqueDaysSet.add(instDay);
-                          final offset = localInst.difference(localStart);
-                          final newEvent = e.copyWith(
-                            startDate: e.startDate.add(offset),
-                            endDate: e.endDate.add(offset),
-                          );
-                          addDayEvent(
-                            instDay,
-                            EventWithCalendar(
-                              event: newEvent,
-                              calendar: item.calendar,
-                            ),
-                          );
-                        }
-                      }
-                    } catch (_) {}
-                  }
-                }
-
-                // Pre-sort all day events by time (once per data update, not per item build)
-                for (final dayEvents in dayEventsMap.values) {
-                  dayEvents.sort(
-                    (a, b) => a.event.startDate.compareTo(b.event.startDate),
-                  );
-                }
-
-                _days = uniqueDaysSet.toList()..sort();
-                _initialIndex = _days.indexOf(today);
-                if (_initialIndex < 0) _initialIndex = 0;
-
-                return ScrollablePositionedList.builder(
-                  itemCount: _days.length,
-                  itemScrollController: _itemScrollController,
-                  itemPositionsListener: _itemPositionsListener,
-                  initialScrollIndex: _initialIndex,
-                  itemBuilder: (context, index) {
-                    final date = _days[index];
-                    final dayEvents = dayEventsMap[date] ?? [];
-
-                    final isToday =
-                        date.day == todayNow.day &&
-                        date.month == todayNow.month &&
-                        date.year == todayNow.year;
-
-                    return _buildDayRow(context, date, dayEvents, isToday);
-                  },
-                );
-              },
-            ),
-          ),
-
-          // Smart Input Bar
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ).copyWith(bottom: MediaQuery.of(context).padding.bottom + 12),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surface.withValues(alpha: 0.7),
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1E1E2C), Color(0xFF12121D)],
+                  ),
                 ),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _nlpController,
-                      enabled: !_isLoading,
-                      decoration: InputDecoration(
-                        hintText: _isLoading
-                            ? 'Thinking...'
-                            : 'e.g., Lunch with Sarah tomorrow at 1pm',
-                        hintStyle: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.05),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 14,
-                        ),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      onSubmitted: _submitNlpEvent,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: _hasText,
-                    builder: (context, hasText, _) {
-                      return CircleAvatar(
-                        backgroundColor: _isLoading
-                            ? Colors.white.withValues(alpha: 0.1)
-                            : (hasText
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.white.withValues(alpha: 0.1)),
-                        radius: 24,
-                        child: _isLoading
-                            ? const Padding(
-                                padding: EdgeInsets.all(12.0),
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : IconButton(
-                                icon: Icon(
-                                  Icons.send,
-                                  color: hasText
-                                      ? Colors.white
-                                      : Colors.white54,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  if (hasText && !_isLoading) {
-                                    _submitNlpEvent(_nlpController.text);
-                                  }
-                                },
-                              ),
+
+              SafeArea(
+                child: StreamBuilder<List<EventWithCalendar>>(
+                  stream: ref.watch(databaseProvider).watchEventsWithCalendars(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final allEvents = snapshot.data ?? [];
+
+                    // Extract unique days with events
+                    final Set<DateTime> uniqueDaysSet = {};
+                    final todayNow = DateTime.now();
+                    final today = DateTime(
+                      todayNow.year,
+                      todayNow.month,
+                      todayNow.day,
+                    );
+                    uniqueDaysSet.add(today);
+
+                    final horizonStart = today.subtract(
+                      const Duration(days: 365 * 2),
+                    );
+                    final horizonEnd = today.add(const Duration(days: 365 * 5));
+                    final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
+
+                    void addDayEvent(DateTime day, EventWithCalendar item) {
+                      dayEventsMap.putIfAbsent(day, () => []).add(item);
+                    }
+
+                    for (var item in allEvents) {
+                      final e = item.event;
+                      final localStart = e.startDate.toLocal();
+                      final originalDay = DateTime(
+                        localStart.year,
+                        localStart.month,
+                        localStart.day,
                       );
-                    },
-                  ),
-                ],
+
+                      uniqueDaysSet.add(originalDay);
+                      addDayEvent(originalDay, item);
+
+                      if (e.recurrenceRule != null &&
+                          e.recurrenceRule!.isNotEmpty) {
+                        try {
+                          final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
+                              ? e.recurrenceRule!
+                              : 'RRULE:${e.recurrenceRule!}';
+                          final rrule = RecurrenceRule.fromString(rruleStr);
+                          final instances = rrule.getInstances(
+                            start: e.startDate.isUtc
+                                ? e.startDate
+                                : e.startDate.toUtc(),
+                            after: horizonStart.toUtc(),
+                            before: horizonEnd.toUtc(),
+                          );
+                          for (final inst in instances) {
+                            final localInst = inst.toLocal();
+                            final instDay = DateTime(
+                              localInst.year,
+                              localInst.month,
+                              localInst.day,
+                            );
+
+                            if (instDay != originalDay) {
+                              uniqueDaysSet.add(instDay);
+                              final offset = localInst.difference(localStart);
+                              final newEvent = e.copyWith(
+                                startDate: e.startDate.add(offset),
+                                endDate: e.endDate.add(offset),
+                              );
+                              addDayEvent(
+                                instDay,
+                                EventWithCalendar(
+                                  event: newEvent,
+                                  calendar: item.calendar,
+                                ),
+                              );
+                            }
+                          }
+                        } catch (_) {}
+                      }
+                    }
+
+                    // Pre-sort all day events by time (once per data update, not per item build)
+                    for (final dayEvents in dayEventsMap.values) {
+                      dayEvents.sort(
+                        (a, b) => a.event.startDate.compareTo(b.event.startDate),
+                      );
+                    }
+
+                    _days = uniqueDaysSet.toList()..sort();
+                    _initialIndex = _days.indexOf(today);
+                    if (_initialIndex < 0) _initialIndex = 0;
+
+                    return ScrollablePositionedList.builder(
+                      itemCount: _days.length,
+                      itemScrollController: _itemScrollController,
+                      itemPositionsListener: _itemPositionsListener,
+                      initialScrollIndex: _initialIndex,
+                      itemBuilder: (context, index) {
+                        final date = _days[index];
+                        final dayEvents = dayEventsMap[date] ?? [];
+                        final isToday = date.day == todayNow.day &&
+                            date.month == todayNow.month &&
+                            date.year == todayNow.year;
+
+                        return _buildDayRow(context, date, dayEvents, isToday);
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
+
+
+              // Floating Radial Menu Button (SpeedDial)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 80),
+                  child: SpeedDial(
+                    icon: Icons.add,
+                    activeIcon: Icons.close,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    spacing: 16,
+                    spaceBetweenChildren: 16,
+                    direction: SpeedDialDirection.up,
+                    children: [
+                      SpeedDialChild(
+                        child: const Icon(Icons.text_fields, color: Colors.white),
+                        label: 'Text Input',
+                        backgroundColor: Theme.of(context).colorScheme.secondary,
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              return Dialog(
+                                backgroundColor: Colors.transparent,
+                                child: SmartInputBar(
+                                  isLoading: _isLoading,
+                                  onSubmit: (text) {
+                                    _submitNlpEvent(text);
+                                  },
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      SpeedDialChild(
+                        child: const Icon(Icons.event_note, color: Colors.white),
+                        label: 'Form Input',
+                        backgroundColor: Theme.of(context).colorScheme.secondary,
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const EventEditScreen(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 

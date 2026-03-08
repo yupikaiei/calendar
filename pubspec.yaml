@@ -58,6 +58,8 @@ dependencies:
   file_picker: ^10.3.10
   rrule: ^0.2.18
   flutter_gemma: ^0.12.1
+  fab_circular_menu: ^1.0.2
+  flutter_speed_dial: ^7.0.0
 
 dev_dependencies:
   flutter_test:

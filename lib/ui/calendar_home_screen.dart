@@ -1,24 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:ui';
 import 'event_edit_screen.dart';
 import 'settings_screen.dart';
+import 'utils.dart';
 import '../core/providers/providers.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/parsers/nlp_parser.dart';
 import 'package:timezone/standalone.dart' as tz;
 import 'package:rrule/rrule.dart';
-import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'dart:math' as math;
+import 'package:record/record.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Smart Input Bar as a reusable widget
 class SmartInputBar extends StatefulWidget {
   final Function(String) onSubmit;
   final bool isLoading;
-  const SmartInputBar({Key? key, required this.onSubmit, this.isLoading = false}) : super(key: key);
+  const SmartInputBar({super.key, required this.onSubmit, this.isLoading = false});
 
   @override
   State<SmartInputBar> createState() => _SmartInputBarState();
@@ -84,8 +93,8 @@ class _SmartInputBarState extends State<SmartInputBar> {
               style: const TextStyle(color: Colors.white),
               onSubmitted: (text) {
                 if (text.isNotEmpty && !widget.isLoading) {
-                  widget.onSubmit(text);
                   Navigator.of(context).pop();
+                  widget.onSubmit(text);
                 }
               },
             ),
@@ -117,8 +126,8 @@ class _SmartInputBarState extends State<SmartInputBar> {
                         ),
                         onPressed: () {
                           if (hasText && !widget.isLoading) {
-                            widget.onSubmit(_controller.text);
                             Navigator.of(context).pop();
+                            widget.onSubmit(_controller.text);
                           }
                         },
                       ),
@@ -139,6 +148,7 @@ class CalendarHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
+  static final _logger = Logger('CalendarHomeScreen');
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
@@ -253,20 +263,6 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     );
   }
 
-  Color _parseColor(String? colorStr) {
-    if (colorStr == null || colorStr.isEmpty) return Colors.blue;
-    try {
-      var hex = colorStr.replaceAll('#', '');
-      if (hex.length == 6) hex = 'FF$hex';
-      if (hex.length == 8) {
-        return Color(int.parse(hex, radix: 16));
-      }
-      return Colors.blue;
-    } catch (_) {
-      return Colors.blue;
-    }
-  }
-
   void _scrollToToday() {
     _itemScrollController.scrollTo(
       index: _initialIndex,
@@ -320,29 +316,64 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     return 'You\'re busy with: $busyDescriptions';
   }
 
+  void _startVoiceInput() async {
+    final prefs = await SharedPreferences.getInstance();
+    final baseUrl = prefs.getString('ai_base_url') ?? '';
+    if (baseUrl.isEmpty) {
+      if (!mounted) return;
+      _showModernSnackBar(
+        context,
+        'AI server not configured. Please update settings.',
+        icon: Icons.error_outline,
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => const _VoiceInputDialog(),
+    ).then((resultText) {
+      if (resultText != null && resultText.trim().isNotEmpty) {
+        _submitNlpEvent(resultText);
+      }
+    });
+  }
+
   void _submitNlpEvent(String text) async {
     if (text.trim().isEmpty || _isLoading) return;
 
     setState(() => _isLoading = true);
 
-    _showModernSnackBar(
-      context,
-      'Extracting details...',
-      icon: Icons.auto_awesome,
-      duration: const Duration(milliseconds: 500),
+    // Capture navigator/focus before async gap to avoid using BuildContext
+    // across awaits.
+    final navigator = Navigator.of(context);
+    final focusScope = FocusScope.of(context);
+
+    // Show thinking dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      builder: (_) => const _ThinkingOverlay(),
     );
 
-    final db = ref.read(databaseProvider);
-    final events = await db.getEvents();
+    try {
+      final db = ref.read(databaseProvider);
+      final events = await db.getEvents();
 
-    final result = await NlpParser.parse(text);
+      final result = await NlpParser.parse(text);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() => _isLoading = false);
+      // Dismiss thinking dialog
+      navigator.pop();
 
-    _nlpController.clear();
-    FocusScope.of(context).unfocus();
+      setState(() => _isLoading = false);
+
+      _nlpController.clear();
+      focusScope.unfocus();
 
     // For query intents, check the schedule programmatically instead of
     // relying on the small LLM (which hallucinates with context data).
@@ -395,6 +426,20 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         // Note: For true CalDAV sync we'd also insert into DeletedEvents table,
         // but local delete is immediately reflected in the UI.
       }
+    }
+    } catch (e) {
+      // Dismiss thinking dialog if still showing
+      if (!mounted) return;
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+      setState(() => _isLoading = false);
+      _showModernSnackBar(
+        context,
+        e.toString().replaceAll('Exception: ', ''),
+        icon: Icons.error_outline,
+        duration: const Duration(seconds: 4),
+      );
     }
   }
 
@@ -523,7 +568,9 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                               );
                             }
                           }
-                        } catch (_) {}
+                        } catch (e) {
+                          _logger.warning('Recurrence rule parsing failed', e);
+                        }
                       }
                     }
 
@@ -558,57 +605,54 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
               ),
 
 
-              // Floating Radial Menu Button (SpeedDial)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 80),
-                  child: SpeedDial(
-                    icon: Icons.add,
-                    activeIcon: Icons.close,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    spacing: 16,
-                    spaceBetweenChildren: 16,
-                    direction: SpeedDialDirection.up,
-                    children: [
-                      SpeedDialChild(
-                        child: const Icon(Icons.text_fields, color: Colors.white),
-                        label: 'Text Input',
-                        backgroundColor: Theme.of(context).colorScheme.secondary,
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) {
-                              return Dialog(
-                                backgroundColor: Colors.transparent,
-                                child: SmartInputBar(
-                                  isLoading: _isLoading,
-                                  onSubmit: (text) {
-                                    _submitNlpEvent(text);
-                                  },
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                      SpeedDialChild(
-                        child: const Icon(Icons.event_note, color: Colors.white),
-                        label: 'Form Input',
-                        backgroundColor: Theme.of(context).colorScheme.secondary,
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
+              // Floating Radial Menu Button
+              _RadialFabMenu(
+                fabIcon: Icons.add,
+                fabCloseIcon: Icons.close,
+                fabColor: Theme.of(context).colorScheme.primary,
+                bottomOffset: MediaQuery.of(context).padding.bottom + 80,
+                items: [
+                  _RadialMenuItem(
+                    icon: Icons.text_fields,
+                    label: 'Text',
+                    color: Theme.of(context).colorScheme.secondary,
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) {
+                          return Dialog(
                             backgroundColor: Colors.transparent,
-                            builder: (context) => const EventEditScreen(),
+                            child: SmartInputBar(
+                              isLoading: _isLoading,
+                              onSubmit: (text) {
+                                _submitNlpEvent(text);
+                              },
+                            ),
                           );
                         },
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
+                  _RadialMenuItem(
+                    icon: Icons.mic,
+                    label: 'Voice',
+                    color: Theme.of(context).colorScheme.secondary,
+                    onTap: _startVoiceInput,
+                  ),
+                  _RadialMenuItem(
+                    icon: Icons.event_note,
+                    label: 'Form',
+                    color: Theme.of(context).colorScheme.secondary,
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => const EventEditScreen(),
+                      );
+                    },
+                  ),
+                ],
               ),
             ],
           ),
@@ -713,7 +757,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     String? secondaryTz,
   ) {
     final event = item.event;
-    final calendarColor = _parseColor(item.calendar?.color);
+    final calendarColor = parseColor(item.calendar?.color);
     final isPast = event.endDate.toLocal().isBefore(DateTime.now());
 
     String? secondaryTimeString;
@@ -728,7 +772,7 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         secondaryTimeString =
             '[$shortName] ${DateFormat('HH:mm').format(startInTz)} - ${DateFormat('HH:mm').format(endInTz)}';
       } catch (e) {
-        debugPrint('Error converting timezone: $e');
+        _logger.fine('Timezone conversion failed for secondary display', e);
       }
     }
 
@@ -930,6 +974,602 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                       ),
                     );
                   },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Voice Input Dialog ──────────────────────────────────────────────────────
+class _VoiceInputDialog extends StatefulWidget {
+  const _VoiceInputDialog();
+
+  @override
+  State<_VoiceInputDialog> createState() => _VoiceInputDialogState();
+}
+
+class _VoiceInputDialogState extends State<_VoiceInputDialog>
+    with SingleTickerProviderStateMixin {
+  final AudioRecorder _recorder = AudioRecorder();
+  late AnimationController _pulseController;
+  bool _isRecording = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+      lowerBound: 0.9,
+      upperBound: 1.2,
+    )..repeat(reverse: true);
+    _startRecording();
+  }
+
+  Future<String> _tempFilePath() async {
+    final dir = await Directory.systemTemp.createTemp('voice');
+    return '${dir.path}/recording.wav';
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      final hasPerm = await _recorder.hasPermission();
+      if (!hasPerm) {
+        setState(() {
+          _errorMessage = 'Microphone permission denied.';
+        });
+        return;
+      }
+      final path = await _tempFilePath();
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          bitRate: 128000,
+          sampleRate: 16000,
+        ),
+        path: path,
+      );
+      setState(() {
+        _isRecording = true;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Recording error: $e';
+      });
+    }
+  }
+
+  Future<void> _stopAndSend() async {
+    final navigator = Navigator.of(context);
+    try {
+      final path = await _recorder.stop();
+      setState(() {
+        _isRecording = false;
+      });
+      if (path == null || path.isEmpty) {
+        setState(() {
+          _errorMessage = 'Failed to capture audio.';
+        });
+        return;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final secure = SecureConfigService();
+      final baseUrl = prefs.getString('stt_base_url') ?? '';
+      if (baseUrl.isEmpty) {
+        setState(() {
+          _errorMessage = 'STT server not configured.';
+        });
+        return;
+      }
+      final apiKey = await secure.read('stt_api_key');
+      final sttModel = prefs.getString('stt_model_name') ?? '';
+      final uri = Uri.parse('$baseUrl/v1/audio/transcriptions');
+      final request = http.MultipartRequest('POST', uri);
+      if (apiKey.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $apiKey';
+      }
+      request.files.add(await http.MultipartFile.fromPath('file', path));
+      if (sttModel.isNotEmpty) {
+        request.fields['model'] = sttModel;
+      }
+      final streamed = await request.send();
+      final resp = await http.Response.fromStream(streamed);
+      if (resp.statusCode >= 400) {
+        setState(() {
+          _errorMessage = 'STT server error ${resp.statusCode}';
+        });
+        return;
+      }
+      final data = jsonDecode(resp.body);
+      final transcript = data['text']?.toString() ?? '';
+      if (!mounted) return;
+      navigator.pop(transcript);
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'STT failed: $e';
+      });
+    }
+  }
+
+  void _cancel() async {
+    final navigator = Navigator.of(context);
+    if (_isRecording) {
+      await _recorder.stop();
+    }
+    navigator.pop();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _recorder.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_errorMessage != null) {
+      return Dialog(
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline,
+                  size: 48, color: Colors.red.withValues(alpha: 0.7)),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Dialog(
+      backgroundColor: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Pulsing mic icon
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _pulseController.value,
+                  child: child,
+                );
+              },
+              child: CircleAvatar(
+                radius: 44,
+                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+                child: CircleAvatar(
+                  radius: 32,
+                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  child: Icon(
+                    Icons.mic,
+                    size: 36,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            Text(
+              _isRecording ? 'Recording...' : 'Processing...',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: _cancel,
+                  icon: const Icon(Icons.close),
+                  label: const Text('Cancel'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white54),
+                ),
+                const SizedBox(width: 16),
+                FilledButton.icon(
+                  onPressed: _isRecording ? _stopAndSend : null,
+                  icon: const Icon(Icons.send, size: 18),
+                  label: const Text('Stop & Send'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Radial Menu Data ────────────────────────────────────────────────────────
+class _RadialMenuItem {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _RadialMenuItem({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+}
+
+// ── Custom Radial FAB Menu ──────────────────────────────────────────────────
+class _RadialFabMenu extends StatefulWidget {
+  final IconData fabIcon;
+  final IconData fabCloseIcon;
+  final Color fabColor;
+  final double bottomOffset;
+  final List<_RadialMenuItem> items;
+
+  const _RadialFabMenu({
+    required this.fabIcon,
+    required this.fabCloseIcon,
+    required this.fabColor,
+    required this.bottomOffset,
+    required this.items,
+  });
+
+  @override
+  State<_RadialFabMenu> createState() => _RadialFabMenuState();
+}
+
+class _RadialFabMenuState extends State<_RadialFabMenu>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _expandAnimation;
+  bool _isOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _expandAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() {
+      _isOpen = !_isOpen;
+      if (_isOpen) {
+        _controller.forward();
+      } else {
+        _controller.reverse();
+      }
+    });
+  }
+
+  void _close() {
+    if (_isOpen) _toggle();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: widget.bottomOffset),
+        child: SizedBox(
+          width: 300,
+          height: 200,
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            clipBehavior: Clip.none,
+            children: [
+              // Scrim / overlay to catch taps when open (behind items)
+              if (_isOpen)
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: _close,
+                    behavior: HitTestBehavior.translucent,
+                  ),
+                ),
+              // Radial items (on top of scrim so they receive taps)
+              ..._buildRadialItems(),
+              // Central FAB
+              _buildFab(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFab() {
+    return AnimatedBuilder(
+      animation: _expandAnimation,
+      builder: (context, child) {
+        return Transform.rotate(
+          angle: _expandAnimation.value * (math.pi * 0.25),
+          child: child,
+        );
+      },
+      child: FloatingActionButton(
+        onPressed: _toggle,
+        backgroundColor: widget.fabColor,
+        elevation: 6,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          transitionBuilder: (child, animation) =>
+              ScaleTransition(scale: animation, child: child),
+          child: Icon(
+            _isOpen ? widget.fabCloseIcon : widget.fabIcon,
+            key: ValueKey(_isOpen),
+            color: Colors.white,
+            size: 28,
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildRadialItems() {
+    final count = widget.items.length;
+    // Spread items in a 120° arc above the FAB (from 210° to 330° in unit-circle terms)
+    const startAngle = 210.0; // degrees
+    const endAngle = 330.0;
+    const radius = 110.0;
+
+    return List.generate(count, (index) {
+      final angle = count == 1
+          ? 270.0 // straight up
+          : startAngle + (endAngle - startAngle) * index / (count - 1);
+      final radians = angle * (math.pi / 180.0);
+
+      final item = widget.items[index];
+
+      return AnimatedBuilder(
+        animation: _expandAnimation,
+        builder: (context, child) {
+          final dx = math.cos(radians) * radius * _expandAnimation.value;
+          final dy = math.sin(radians) * radius * _expandAnimation.value;
+          return Transform.translate(
+            offset: Offset(dx, dy),
+            child: Opacity(
+              opacity: _expandAnimation.value,
+              child: child,
+            ),
+          );
+        },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTap: () {
+                _close();
+                item.onTap();
+              },
+              child: CircleAvatar(
+                radius: 26,
+                backgroundColor: item.color,
+                child: Icon(item.icon, color: Colors.white, size: 22),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+}
+
+// ── Thinking Overlay ────────────────────────────────────────────────────────
+class _ThinkingOverlay extends StatefulWidget {
+  const _ThinkingOverlay();
+
+  @override
+  State<_ThinkingOverlay> createState() => _ThinkingOverlayState();
+}
+
+class _ThinkingOverlayState extends State<_ThinkingOverlay>
+    with TickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late AnimationController _rotateController;
+  late Animation<double> _pulseAnimation;
+
+  static const _thinkingPhrases = [
+    'Thinking...',
+    'Reasoning through your request...',
+    'Understanding your intent...',
+    'Analyzing details...',
+    'Almost there...',
+  ];
+  int _phraseIndex = 0;
+  Timer? _phraseTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 0.85, end: 1.15).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _rotateController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+
+    // Cycle through thinking phrases
+    _phraseTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      setState(() {
+        _phraseIndex = (_phraseIndex + 1) % _thinkingPhrases.length;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _phraseTimer?.cancel();
+    _pulseController.dispose();
+    _rotateController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            width: 220,
+            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Animated icon
+                AnimatedBuilder(
+                  animation: _pulseAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _pulseAnimation.value,
+                      child: child,
+                    );
+                  },
+                  child: AnimatedBuilder(
+                    animation: _rotateController,
+                    builder: (context, child) {
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Rotating ring
+                          Transform.rotate(
+                            angle: _rotateController.value * 2 * 3.14159,
+                            child: Container(
+                              width: 72,
+                              height: 72,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: theme.colorScheme.primary
+                                      .withValues(alpha: 0.2),
+                                  width: 2,
+                                ),
+                                gradient: SweepGradient(
+                                  colors: [
+                                    theme.colorScheme.primary
+                                        .withValues(alpha: 0.0),
+                                    theme.colorScheme.primary
+                                        .withValues(alpha: 0.6),
+                                    theme.colorScheme.primary
+                                        .withValues(alpha: 0.0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Center icon
+                          Icon(
+                            Icons.auto_awesome,
+                            size: 32,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Animated text
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  child: Text(
+                    _thinkingPhrases[_phraseIndex],
+                    key: ValueKey(_phraseIndex),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Subtle progress dots
+                SizedBox(
+                  width: 40,
+                  child: LinearProgressIndicator(
+                    backgroundColor:
+                        theme.colorScheme.primary.withValues(alpha: 0.1),
+                    valueColor: AlwaysStoppedAnimation(
+                      theme.colorScheme.primary.withValues(alpha: 0.5),
+                    ),
+                    minHeight: 2,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
                 ),
               ],
             ),

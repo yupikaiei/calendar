@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/foundation.dart';
 
 part 'database.g.dart';
 
@@ -47,6 +48,9 @@ class EventWithCalendar {
 @DriftDatabase(tables: [Events, Reminders, DeletedEvents, Calendars])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
+
+  @visibleForTesting
+  AppDatabase.forTesting(super.e);
 
   @override
   int get schemaVersion => 4;
@@ -162,16 +166,18 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<int> deleteCalendar(int id) async {
-    // Manually cascade delete events (and their reminders) for the calendar
-    // since PRAGMA foreign_keys = ON might not be guaranteed across all platforms.
-    final eventsToDelete = await (select(
-      events,
-    )..where((e) => e.calendarId.equals(id))).get();
-    for (final event in eventsToDelete) {
-      await (delete(reminders)..where((r) => r.eventId.equals(event.id))).go();
-    }
-    await (delete(events)..where((e) => e.calendarId.equals(id))).go();
+    return transaction(() async {
+      // Delete reminders for all events belonging to this calendar using a subquery
+      final eventIds = selectOnly(events)
+        ..addColumns([events.id])
+        ..where(events.calendarId.equals(id));
+      await (delete(reminders)..where((r) => r.eventId.isInQuery(eventIds))).go();
 
-    return (delete(calendars)..where((c) => c.id.equals(id))).go();
+      // Delete events for this calendar
+      await (delete(events)..where((e) => e.calendarId.equals(id))).go();
+
+      // Delete the calendar itself
+      return (delete(calendars)..where((c) => c.id.equals(id))).go();
+    });
   }
 }

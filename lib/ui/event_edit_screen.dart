@@ -4,6 +4,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:uuid/uuid.dart';
 import '../core/providers/providers.dart';
 import '../core/db/database.dart';
+import 'utils.dart';
 
 class EventEditScreen extends ConsumerStatefulWidget {
   final Event? event;
@@ -115,20 +116,6 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     _descriptionController.dispose();
     _locationController.dispose();
     super.dispose();
-  }
-
-  Color _parseColor(String? colorStr) {
-    if (colorStr == null || colorStr.isEmpty) return Colors.blue;
-    try {
-      var hex = colorStr.replaceAll('#', '');
-      if (hex.length == 6) hex = 'FF$hex';
-      if (hex.length == 8) {
-        return Color(int.parse(hex, radix: 16));
-      }
-      return Colors.blue;
-    } catch (_) {
-      return Colors.blue;
-    }
   }
 
   DateTime _combineDateAndTime(DateTime date, TimeOfDay time) {
@@ -363,7 +350,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                                   width: 12,
                                   height: 12,
                                   decoration: BoxDecoration(
-                                    color: _parseColor(cal.color),
+                                    color: parseColor(cal.color),
                                     shape: BoxShape.circle,
                                   ),
                                 ),

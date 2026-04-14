@@ -55,7 +55,7 @@ class ICalParser {
         final matches = regex.allMatches(icsData);
         for (final match in matches) {
           final block =
-              'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n${match.group(1)}\r\nEND:VEVENT\r\nEND:VCALENDAR';
+              'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Frelsi//Cal//EN\r\nBEGIN:VEVENT\r\n${match.group(1)}\r\nEND:VEVENT\r\nEND:VCALENDAR';
           try {
             final iCal = ICalendar.fromString(block);
             for (final element in iCal.data) {
@@ -67,7 +67,7 @@ class ICalParser {
               }
             }
           } catch (_) {
-            // Ignore single event parse failures during fallback
+            // Intentional: skip individual event parse failures during fallback extraction
           }
         }
       } catch (e) {
@@ -106,7 +106,8 @@ class ICalParser {
         return dtField.toDateTime() ?? DateTime.now();
       }
       return DateTime.parse(dtField.toString());
-    } catch (_) {
+    } catch (e) {
+      developer.log('Date parse failed for: $dtField', name: 'ICalParser');
       return DateTime.now();
     }
   }

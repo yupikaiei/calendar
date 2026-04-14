@@ -1,27 +1,38 @@
+import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:logging/logging.dart';
-import 'package:timezone/data/latest.dart' as tz;
 import 'core/providers/providers.dart';
 import 'core/sync/sync_manager.dart';
 import 'ui/app_splash_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // optional HuggingFace token for gated models; can be passed via --dart-define
-  FlutterGemma.initialize(
-    huggingFaceToken: const String.fromEnvironment('HUGGINGFACE_TOKEN'),
-  );
-  tz.initializeTimeZones();
+
+  final logger = Logger('App');
 
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
     debugPrint('${record.level.name}: ${record.time}: ${record.message}');
   });
 
-  runApp(const ProviderScope(child: FrelsiCalApp()));
+  FlutterError.onError = (details) {
+    logger.severe('Flutter framework error', details.exception, details.stack);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    logger.severe('Unhandled platform error', error, stack);
+    return true;
+  };
+
+  runZonedGuarded(
+    () => runApp(const ProviderScope(child: FrelsiCalApp())),
+    (error, stack) {
+      logger.severe('Unhandled zone error', error, stack);
+    },
+  );
 }
 
 class FrelsiCalApp extends ConsumerStatefulWidget {

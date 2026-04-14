@@ -10,16 +10,22 @@ import 'ical_parser.dart';
 
 final syncManagerProvider = Provider<SyncManager>((ref) {
   final manager = SyncManager(ref.read(databaseProvider));
+  ref.onDispose(() => manager.dispose());
   return manager;
 });
 
 class SyncManager with WidgetsBindingObserver {
   final AppDatabase _db;
+  final Future<CalDavService?> Function()? _calDavServiceFactory;
   final _logger = Logger('SyncManager');
 
-  SyncManager(this._db) {
+  SyncManager(this._db) : _calDavServiceFactory = null {
     WidgetsBinding.instance.addObserver(this);
   }
+
+  @visibleForTesting
+  SyncManager.forTesting(this._db, {Future<CalDavService?> Function()? calDavServiceFactory})
+      : _calDavServiceFactory = calDavServiceFactory;
 
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -34,24 +40,15 @@ class SyncManager with WidgetsBindingObserver {
   }
 
   Future<CalDavService?> _getCalDavService() async {
-    final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString('server_url') ?? '';
-    final username = prefs.getString('username') ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    if (serverUrl.isEmpty || username.isEmpty) {
-      return null;
-    }
-
-    return CalDavService(
-      serverUrl: serverUrl,
-      username: username,
-      password: password,
-    );
+    return createCalDavServiceFromPrefs();
   }
 
   Future<void> performSync() async {
-    final calDavService = await _getCalDavService();
+    CalDavService? calDavService;
+    try {
+    calDavService = _calDavServiceFactory != null
+        ? await _calDavServiceFactory()
+        : await _getCalDavService();
     if (calDavService == null) {
       _logger.warning('Missing CalDAV settings, skipping sync.');
       return;
@@ -206,6 +203,11 @@ class SyncManager with WidgetsBindingObserver {
       } else {
         _logger.info('${dbCal.displayName} is up to date.');
       }
+    }
+    } catch (e, st) {
+      _logger.severe('Sync failed', e, st);
+    } finally {
+      calDavService?.close();
     }
   }
 }

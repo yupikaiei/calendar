@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'package:drift/drift.dart' as drift;
 import '../core/providers/providers.dart';
 import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/sync/ical_parser.dart';
+import 'utils.dart';
 import 'package:timezone/standalone.dart' as tz;
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -24,21 +26,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _usernameController;
   late TextEditingController _passwordController;
 
+  // AI server configuration
+  late TextEditingController _aiBaseUrlController;
+  late TextEditingController _aiApiKeyController;
+  late TextEditingController _aiModelController;
+
+  // STT server configuration
+  late TextEditingController _sttBaseUrlController;
+  late TextEditingController _sttApiKeyController;
+  late TextEditingController _sttModelController;
+
   @override
   void initState() {
     super.initState();
     _serverUrlController = TextEditingController();
     _usernameController = TextEditingController();
     _passwordController = TextEditingController();
+    _aiBaseUrlController = TextEditingController();
+    _aiApiKeyController = TextEditingController();
+    _aiModelController = TextEditingController();
+    _sttBaseUrlController = TextEditingController();
+    _sttApiKeyController = TextEditingController();
+    _sttModelController = TextEditingController();
     _loadSettings();
   }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final secure = ref.read(secureConfigProvider);
+    await secure.ensureMigrated();
+    final password = await secure.read('password');
+    final aiApiKey = await secure.read('ai_api_key');
+    final sttApiKey = await secure.read('stt_api_key');
     setState(() {
       _serverUrlController.text = prefs.getString('server_url') ?? '';
       _usernameController.text = prefs.getString('username') ?? '';
-      _passwordController.text = prefs.getString('password') ?? '';
+      _passwordController.text = password;
+      _aiBaseUrlController.text = prefs.getString('ai_base_url') ?? '';
+      _aiApiKeyController.text = aiApiKey;
+      _aiModelController.text = prefs.getString('ai_model_name') ?? '';
+      _sttBaseUrlController.text = prefs.getString('stt_base_url') ?? '';
+      _sttApiKeyController.text = sttApiKey;
+      _sttModelController.text = prefs.getString('stt_model_name') ?? '';
     });
   }
 
@@ -47,15 +76,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _serverUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _aiBaseUrlController.dispose();
+    _aiApiKeyController.dispose();
+    _aiModelController.dispose();
+    _sttBaseUrlController.dispose();
+    _sttApiKeyController.dispose();
+    _sttModelController.dispose();
     super.dispose();
   }
 
   void _saveSettings() async {
     if (_formKey.currentState!.validate()) {
       final prefs = await SharedPreferences.getInstance();
+      final secure = ref.read(secureConfigProvider);
       await prefs.setString('server_url', _serverUrlController.text.trim());
       await prefs.setString('username', _usernameController.text.trim());
-      await prefs.setString('password', _passwordController.text.trim());
+      await secure.write('password', _passwordController.text.trim());
+      await prefs.setString('ai_base_url', _aiBaseUrlController.text.trim());
+      await secure.write('ai_api_key', _aiApiKeyController.text.trim());
+      await prefs.setString('ai_model_name', _aiModelController.text.trim());
+      await prefs.setString('stt_base_url', _sttBaseUrlController.text.trim());
+      await secure.write('stt_api_key', _sttApiKeyController.text.trim());
+      await prefs.setString('stt_model_name', _sttModelController.text.trim());
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -63,6 +105,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     }
+  }
+
+  void _testAiConnection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final secure = ref.read(secureConfigProvider);
+    final baseUrl = prefs.getString('ai_base_url') ?? '';
+    final apiKey = await secure.read('ai_api_key');
+    if (baseUrl.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter AI server URL first.')),
+        );
+      }
+      return;
+    }
+    try {
+      final uri = Uri.parse('$baseUrl/v1/models');
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      if (apiKey.isNotEmpty) headers['Authorization'] = 'Bearer $apiKey';
+      final resp = await http.get(uri, headers: headers).timeout(
+            const Duration(seconds: 5),
+          );
+      if (mounted) {
+        if (resp.statusCode < 400) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AI server reachable.')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('AI server error: \\${resp.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('AI connection failed: \\$e')),
+        );
+      }
+    }
+  }
+
+  Future<CalDavService?> _getCalDavServiceFromPrefs() async {
+    return createCalDavServiceFromPrefs();
   }
 
   void _showCreateCalendarDialog() {
@@ -101,18 +187,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _createNewCalendar(String name) async {
+    final service = await _getCalDavServiceFromPrefs();
+    if (service == null) return;
+
     final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString('server_url') ?? '';
     final username = prefs.getString('username') ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    if (serverUrl.isEmpty || username.isEmpty) return;
-
-    final service = CalDavService(
-      serverUrl: serverUrl,
-      username: username,
-      password: password,
-    );
 
     // Create a URL-safe path from the name
     final pathName = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '-');
@@ -243,18 +322,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _renameCalendar(Calendar cal, String newName) async {
     final messenger = ScaffoldMessenger.of(context);
-    final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString('server_url') ?? '';
-    final username = prefs.getString('username') ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    if (serverUrl.isEmpty || username.isEmpty) return;
-
-    final service = CalDavService(
-      serverUrl: serverUrl,
-      username: username,
-      password: password,
-    );
+    final service = await _getCalDavServiceFromPrefs();
+    if (service == null) return;
 
     try {
       bool success = false;
@@ -319,18 +388,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _deleteCalendar(Calendar cal) async {
     final messenger = ScaffoldMessenger.of(context);
-    final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString('server_url') ?? '';
-    final username = prefs.getString('username') ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    if (serverUrl.isEmpty || username.isEmpty) return;
-
-    final service = CalDavService(
-      serverUrl: serverUrl,
-      username: username,
-      password: password,
-    );
+    final service = await _getCalDavServiceFromPrefs();
+    if (service == null) return;
 
     try {
       bool success = false;
@@ -360,37 +419,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Color _parseColor(String? colorStr) {
-    if (colorStr == null || colorStr.isEmpty) return Colors.blue;
-    try {
-      var hex = colorStr.replaceAll('#', '');
-      if (hex.length == 6) hex = 'FF$hex';
-      if (hex.length == 8) {
-        return Color(int.parse(hex, radix: 16));
-      }
-      return Colors.blue;
-    } catch (_) {
-      return Colors.blue;
-    }
-  }
-
   Future<void> _updateColor(Calendar cal, Color color) async {
     final hexString =
         '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
 
     final messenger = ScaffoldMessenger.of(context);
-    final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString('server_url') ?? '';
-    final username = prefs.getString('username') ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    if (serverUrl.isEmpty || username.isEmpty) return;
-
-    final service = CalDavService(
-      serverUrl: serverUrl,
-      username: username,
-      password: password,
-    );
+    final service = await _getCalDavServiceFromPrefs();
+    if (service == null) return;
 
     try {
       bool success = false;
@@ -536,7 +571,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: const Text('Save Connections'),
             ),
 
-            const Divider(height: 48),
+            const Divider(height: 32),
+            const Text(
+              'AI Server Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _aiBaseUrlController,
+              decoration: const InputDecoration(
+                labelText: 'AI Server URL',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.cloud),
+              ),
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _aiApiKeyController,
+              decoration: const InputDecoration(
+                labelText: 'API Key',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.vpn_key),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _aiModelController,
+              decoration: const InputDecoration(
+                labelText: 'NLP Model Name',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.smart_toy),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _testAiConnection,
+              child: const Text('Test AI Connection'),
+            ),
+            const Divider(height: 32),
+            const Text(
+              'STT Server Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _sttBaseUrlController,
+              decoration: const InputDecoration(
+                labelText: 'STT Server URL',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.record_voice_over),
+              ),
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _sttApiKeyController,
+              decoration: const InputDecoration(
+                labelText: 'STT API Key (optional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.vpn_key),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _sttModelController,
+              decoration: const InputDecoration(
+                labelText: 'STT Model (optional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.mic),
+              ),
+            ),
+            const SizedBox(height: 24),
 
             const Text(
               'Timezone Settings',
@@ -625,7 +735,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         width: 16,
                         height: 16,
                         decoration: BoxDecoration(
-                          color: _parseColor(cal.color),
+                          color: parseColor(cal.color),
                           shape: BoxShape.circle,
                         ),
                       ),

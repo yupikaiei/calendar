@@ -7,13 +7,17 @@ class CalDavService {
   final String serverUrl;
   final String username;
   final String password;
+  final http.Client _client;
   final _logger = Logger('CalDavService');
 
   CalDavService({
     required this.serverUrl,
     required this.username,
     required this.password,
-  });
+    http.Client? client,
+  }) : _client = client ?? http.Client();
+
+  void close() => _client.close();
 
   Map<String, String> get _headers {
     final basicAuth = base64Encode(utf8.encode('$username:$password'));
@@ -39,7 +43,7 @@ class CalDavService {
     request.headers['Depth'] = '0';
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     final responseBody = await response.stream.bytesToString();
 
     if (response.statusCode == 200 || response.statusCode == 207) {
@@ -80,7 +84,7 @@ class CalDavService {
     request.headers['Depth'] = '1';
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     final responseBody = await response.stream.bytesToString();
     final calendars = <Map<String, String>>[];
 
@@ -153,7 +157,7 @@ class CalDavService {
     request.headers['Depth'] = '1';
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     final responseBody = await response.stream.bytesToString();
     final events = <String>[];
 
@@ -187,7 +191,7 @@ class CalDavService {
     request.headers.addAll(_headers);
     request.body = icsData;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     if (response.statusCode == 201 || response.statusCode == 204) {
       return true;
     }
@@ -213,7 +217,7 @@ class CalDavService {
     request.headers.addAll(_headers);
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     if (response.statusCode == 201) {
       _logger.info('Calendar created successfully at $calendarPath');
       return true;
@@ -242,7 +246,7 @@ class CalDavService {
     request.headers.addAll(_headers);
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     if (response.statusCode == 200 || response.statusCode == 207) {
       _logger.info('Calendar color updated successfully at $calendarPath');
       return true;
@@ -271,7 +275,7 @@ class CalDavService {
     request.headers.addAll(_headers);
     request.body = requestBody;
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     if (response.statusCode == 200 || response.statusCode == 207) {
       _logger.info(
         'Calendar display name updated successfully at $calendarPath',
@@ -290,7 +294,7 @@ class CalDavService {
     final request = http.Request('DELETE', url);
     request.headers.addAll(_headers);
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     if (response.statusCode == 200 ||
         response.statusCode == 204 ||
         response.statusCode == 404) {
@@ -309,7 +313,7 @@ class CalDavService {
     final request = http.Request('DELETE', url);
     request.headers.addAll(_headers);
 
-    final response = await http.Client().send(request);
+    final response = await _client.send(request);
     // 200/204 means successful deletion, 404 means it's already gone on server
     if (response.statusCode == 200 ||
         response.statusCode == 204 ||

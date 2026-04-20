@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart' hide Column;
@@ -45,6 +46,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
 
   int? _selectedCalendarId;
   List<Calendar> _calendars = [];
+  StreamSubscription<List<Reminder>>? _remindersSub;
 
   @override
   void initState() {
@@ -73,6 +75,21 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     _recurrenceRule = widget.event?.recurrenceRule;
     _selectedCalendarId = widget.event?.calendarId;
 
+    // Detect all-day: start at midnight, end at midnight, spanning >= 1 day
+    final localStart = _startDate.toLocal();
+    final localEnd = _endDate.toLocal();
+    if (localStart.hour == 0 &&
+        localStart.minute == 0 &&
+        localEnd.hour == 0 &&
+        localEnd.minute == 0 &&
+        localEnd.difference(localStart).inDays >= 1) {
+      _isAllDay = true;
+      // Convert exclusive end date to inclusive for display
+      // (e.g., stored April 16 00:00 → display April 15)
+      _endDate = localEnd.subtract(const Duration(days: 1));
+      _endTime = const TimeOfDay(hour: 0, minute: 0);
+    }
+
     _loadCalendars();
 
     if (widget.event != null) {
@@ -83,7 +100,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
   Future<void> _loadReminders() async {
     final db = ref.read(databaseProvider);
     final stream = db.watchRemindersForEvent(widget.event!.id);
-    stream.listen((reminders) {
+    _remindersSub = stream.listen((reminders) {
       if (mounted) {
         setState(() {
           _reminders = reminders.map((r) => r.minutesBefore).toList();
@@ -112,6 +129,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
 
   @override
   void dispose() {
+    _remindersSub?.cancel();
     _titleController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
@@ -126,8 +144,17 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     if (_formKey.currentState!.validate()) {
       final db = ref.read(databaseProvider);
 
-      final start = _combineDateAndTime(_startDate, _startTime);
-      final end = _combineDateAndTime(_endDate, _endTime);
+      DateTime start;
+      DateTime end;
+      if (_isAllDay) {
+        // All-day: start at midnight, end at midnight of (displayed end date + 1)
+        start = DateTime(_startDate.year, _startDate.month, _startDate.day);
+        final endDay = DateTime(_endDate.year, _endDate.month, _endDate.day);
+        end = endDay.add(const Duration(days: 1));
+      } else {
+        start = _combineDateAndTime(_startDate, _startTime);
+        end = _combineDateAndTime(_endDate, _endTime);
+      }
 
       final companion = EventsCompanion(
         title: Value(_titleController.text),
@@ -166,23 +193,20 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
         );
       }
 
-      // Schedule or update native notifications
+      // Schedule notifications in the background after dismissing the sheet
       final savedEvent = await db.getEventById(eventId);
       final notifService = ref.read(notificationServiceProvider);
-      // Cancel existing ones first in case settings changed
-      if (widget.event != null) {
-        // Assuming old ones were up to the max we keep track of, but we can just cancel all for simplicity
-        // or specific ones if we passed them. For now, cancelAllReminders is too broad, so we cancel specific.
-        // Wait, the easiest way to avoid stale notifications is to have a robust ID.
-      }
-
-      for (final mins in _reminders) {
-        await notifService.scheduleEventReminder(savedEvent, mins);
-      }
+      final remindersToSchedule = List<int>.from(_reminders);
 
       if (mounted) {
         Navigator.of(context).pop();
       }
+
+      // Fire-and-forget: schedule all reminders in parallel
+      Future.wait(
+        remindersToSchedule
+            .map((mins) => notifService.scheduleEventReminder(savedEvent, mins)),
+      );
     }
   }
 
@@ -375,7 +399,9 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                           _isAllDay = val;
                           if (val) {
                             _startTime = const TimeOfDay(hour: 0, minute: 0);
-                            _endTime = const TimeOfDay(hour: 23, minute: 59);
+                            _endTime = const TimeOfDay(hour: 0, minute: 0);
+                            // End date = start date (inclusive, +1 day added at save time)
+                            _endDate = DateTime(_startDate.year, _startDate.month, _startDate.day);
                           }
                         });
                       },

@@ -159,9 +159,16 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
   final TextEditingController _nlpController = TextEditingController();
   final ValueNotifier<bool> _hasText = ValueNotifier(false);
   bool _isLoading = false;
+  Timer? _scrollDebounce;
+
+  // Cached recurrence expansion results
+  List<EventWithCalendar>? _lastAllEvents;
+  Map<DateTime, List<EventWithCalendar>>? _cachedDayEventsMap;
+  List<DateTime>? _cachedDays;
 
   @override
   void dispose() {
+    _scrollDebounce?.cancel();
     _nlpController.removeListener(_onTextChanged);
     _nlpController.dispose();
     _hasText.dispose();
@@ -178,20 +185,22 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     _nlpController.addListener(_onTextChanged);
     _generateDays();
 
-    // Listen to scroll to update the top week strip if needed
+    // Listen to scroll to update the top week strip if needed (debounced)
     _itemPositionsListener.itemPositions.addListener(() {
-      final positions = _itemPositionsListener.itemPositions.value;
-      if (positions.isNotEmpty) {
-        int visibleIndex = positions.first.index;
-        if (visibleIndex >= 0 && visibleIndex < _days.length) {
-          final topDate = _days[visibleIndex];
-          if (topDate.day != _selectedDate.day ||
-              topDate.month != _selectedDate.month) {
-            // Can update UI state to mark current scrolling day
-            // But we debounce it or keep it simple for now
+      _scrollDebounce?.cancel();
+      _scrollDebounce = Timer(const Duration(milliseconds: 100), () {
+        final positions = _itemPositionsListener.itemPositions.value;
+        if (positions.isNotEmpty) {
+          int visibleIndex = positions.first.index;
+          if (visibleIndex >= 0 && visibleIndex < _days.length) {
+            final topDate = _days[visibleIndex];
+            if (topDate.day != _selectedDate.day ||
+                topDate.month != _selectedDate.month) {
+              // Can update UI state to mark current scrolling day
+            }
           }
         }
-      }
+      });
     });
   }
 
@@ -199,6 +208,87 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
     // We will dynamically generate days in the builder now
     // but keep _initialIndex initialized safely
     _initialIndex = 0;
+  }
+
+  /// Expands recurrence rules and builds the day-events map.
+  /// Extracted from build() so this expensive work only runs when data changes.
+  Map<DateTime, List<EventWithCalendar>> _expandRecurrences(
+    List<EventWithCalendar> allEvents,
+  ) {
+    final todayNow = DateTime.now();
+    final today = DateTime(todayNow.year, todayNow.month, todayNow.day);
+    final horizonStart = today.subtract(const Duration(days: 365 * 2));
+    final horizonEnd = today.add(const Duration(days: 365 * 5));
+
+    final Set<DateTime> uniqueDaysSet = {today};
+    final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
+
+    void addDayEvent(DateTime day, EventWithCalendar item) {
+      dayEventsMap.putIfAbsent(day, () => []).add(item);
+    }
+
+    for (var item in allEvents) {
+      final e = item.event;
+      final localStart = e.startDate.toLocal();
+      final originalDay = DateTime(
+        localStart.year,
+        localStart.month,
+        localStart.day,
+      );
+
+      uniqueDaysSet.add(originalDay);
+      addDayEvent(originalDay, item);
+
+      if (e.recurrenceRule != null &&
+          e.recurrenceRule!.isNotEmpty &&
+          e.recurrenceRule!.contains('FREQ=')) {
+        try {
+          final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
+              ? e.recurrenceRule!
+              : 'RRULE:${e.recurrenceRule!}';
+          final rrule = RecurrenceRule.fromString(rruleStr);
+          final instances = rrule.getInstances(
+            start: e.startDate.isUtc ? e.startDate : e.startDate.toUtc(),
+            after: horizonStart.toUtc(),
+            before: horizonEnd.toUtc(),
+          );
+          for (final inst in instances) {
+            final localInst = inst.toLocal();
+            final instDay = DateTime(
+              localInst.year,
+              localInst.month,
+              localInst.day,
+            );
+
+            if (instDay != originalDay) {
+              uniqueDaysSet.add(instDay);
+              final offset = localInst.difference(localStart);
+              final newEvent = e.copyWith(
+                startDate: e.startDate.add(offset),
+                endDate: e.endDate.add(offset),
+              );
+              addDayEvent(
+                instDay,
+                EventWithCalendar(event: newEvent, calendar: item.calendar),
+              );
+            }
+          }
+        } catch (err) {
+          _logger.warning(
+            'Recurrence rule parsing failed for rule "${e.recurrenceRule}": $err',
+          );
+        }
+      }
+    }
+
+    for (final dayEvents in dayEventsMap.values) {
+      dayEvents.sort(
+        (a, b) => a.event.startDate.compareTo(b.event.startDate),
+      );
+    }
+
+    _cachedDays = uniqueDaysSet.toList()..sort();
+    return dayEventsMap;
   }
 
   void _showModernSnackBar(
@@ -216,16 +306,12 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
         padding: EdgeInsets.zero,
         margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
         duration: duration,
-        content: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-            child: Container(
+        content: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: Theme.of(
                   context,
-                ).colorScheme.surface.withValues(alpha: 0.8),
+                ).colorScheme.surface.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                 boxShadow: [
@@ -256,8 +342,6 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                   ),
                 ],
               ),
-            ),
-          ),
         ),
       ),
     );
@@ -493,95 +577,31 @@ class _CalendarHomeScreenState extends ConsumerState<CalendarHomeScreen> {
                 child: StreamBuilder<List<EventWithCalendar>>(
                   stream: ref.watch(databaseProvider).watchEventsWithCalendars(),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        _cachedDayEventsMap == null) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     final allEvents = snapshot.data ?? [];
 
-                    // Extract unique days with events
-                    final Set<DateTime> uniqueDaysSet = {};
+                    // Only recompute recurrence expansion when data changes
+                    final Map<DateTime, List<EventWithCalendar>> dayEventsMap;
+                    if (!identical(allEvents, _lastAllEvents)) {
+                      _lastAllEvents = allEvents;
+                      dayEventsMap = _expandRecurrences(allEvents);
+                      _cachedDayEventsMap = dayEventsMap;
+                    } else {
+                      dayEventsMap = _cachedDayEventsMap!;
+                    }
+
                     final todayNow = DateTime.now();
                     final today = DateTime(
                       todayNow.year,
                       todayNow.month,
                       todayNow.day,
                     );
-                    uniqueDaysSet.add(today);
 
-                    final horizonStart = today.subtract(
-                      const Duration(days: 365 * 2),
-                    );
-                    final horizonEnd = today.add(const Duration(days: 365 * 5));
-                    final Map<DateTime, List<EventWithCalendar>> dayEventsMap = {};
+                    _days = _cachedDays ?? (dayEventsMap.keys.toList()..sort());
 
-                    void addDayEvent(DateTime day, EventWithCalendar item) {
-                      dayEventsMap.putIfAbsent(day, () => []).add(item);
-                    }
-
-                    for (var item in allEvents) {
-                      final e = item.event;
-                      final localStart = e.startDate.toLocal();
-                      final originalDay = DateTime(
-                        localStart.year,
-                        localStart.month,
-                        localStart.day,
-                      );
-
-                      uniqueDaysSet.add(originalDay);
-                      addDayEvent(originalDay, item);
-
-                      if (e.recurrenceRule != null &&
-                          e.recurrenceRule!.isNotEmpty) {
-                        try {
-                          final rruleStr = e.recurrenceRule!.startsWith('RRULE:')
-                              ? e.recurrenceRule!
-                              : 'RRULE:${e.recurrenceRule!}';
-                          final rrule = RecurrenceRule.fromString(rruleStr);
-                          final instances = rrule.getInstances(
-                            start: e.startDate.isUtc
-                                ? e.startDate
-                                : e.startDate.toUtc(),
-                            after: horizonStart.toUtc(),
-                            before: horizonEnd.toUtc(),
-                          );
-                          for (final inst in instances) {
-                            final localInst = inst.toLocal();
-                            final instDay = DateTime(
-                              localInst.year,
-                              localInst.month,
-                              localInst.day,
-                            );
-
-                            if (instDay != originalDay) {
-                              uniqueDaysSet.add(instDay);
-                              final offset = localInst.difference(localStart);
-                              final newEvent = e.copyWith(
-                                startDate: e.startDate.add(offset),
-                                endDate: e.endDate.add(offset),
-                              );
-                              addDayEvent(
-                                instDay,
-                                EventWithCalendar(
-                                  event: newEvent,
-                                  calendar: item.calendar,
-                                ),
-                              );
-                            }
-                          }
-                        } catch (e) {
-                          _logger.warning('Recurrence rule parsing failed', e);
-                        }
-                      }
-                    }
-
-                    // Pre-sort all day events by time (once per data update, not per item build)
-                    for (final dayEvents in dayEventsMap.values) {
-                      dayEvents.sort(
-                        (a, b) => a.event.startDate.compareTo(b.event.startDate),
-                      );
-                    }
-
-                    _days = uniqueDaysSet.toList()..sort();
                     _initialIndex = _days.indexOf(today);
                     if (_initialIndex < 0) _initialIndex = 0;
 

@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:logging/logging.dart';
+import 'package:timezone/data/latest.dart' as tz;
 import 'core/providers/providers.dart';
 import 'core/sync/sync_manager.dart';
-import 'ui/app_splash_screen.dart';
+import 'ui/calendar_home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,7 @@ class _FrelsiCalAppState extends ConsumerState<FrelsiCalApp> {
   @override
   void initState() {
     super.initState();
+    tz.initializeTimeZones();
     // Initialize the sync manager immediately so it starts listening to lifecycle events
     ref.read(syncManagerProvider);
     // Initialize notification service immediately so permissions can be requested
@@ -74,7 +76,7 @@ class _FrelsiCalAppState extends ConsumerState<FrelsiCalApp> {
         textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
         useMaterial3: true,
       ),
-      home: const AppSplashScreen(),
+      home: const CalendarHomeScreen(),
     );
   }
 }

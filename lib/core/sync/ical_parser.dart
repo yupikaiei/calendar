@@ -88,6 +88,11 @@ class ICalParser {
     final uid = vEvent['uid']?.toString() ?? '';
     if (uid.isEmpty) return null;
 
+    final rruleRaw = vEvent['rrule']?.toString();
+    final rrule = (rruleRaw != null && rruleRaw.isNotEmpty && rruleRaw != 'null' && rruleRaw.contains('FREQ='))
+        ? rruleRaw
+        : null;
+
     return EventsCompanion(
       uid: Value(uid),
       title: Value(vEvent['summary']?.toString() ?? 'Untitled'),
@@ -95,7 +100,7 @@ class ICalParser {
       endDate: Value(_parseDate(vEvent['dtend'])),
       description: Value(vEvent['description']?.toString()),
       location: Value(vEvent['location']?.toString()),
-      recurrenceRule: Value(vEvent['rrule']?.toString()),
+      recurrenceRule: Value(rrule),
     );
   }
 

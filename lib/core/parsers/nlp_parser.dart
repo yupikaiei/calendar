@@ -39,17 +39,28 @@ class NlpIntentResult {
 class NlpParser {
   static final _logger = Logger('NlpParser');
 
+  // Cached config to avoid re-reading prefs + secure storage every call
+  static Map<String, String>? _cachedConfig;
+
   /// Helper that loads AI server config from shared preferences
-  /// and sensitive keys from secure storage.
+  /// and sensitive keys from secure storage. Caches after first load.
   static Future<Map<String, String>> _loadConfig({SecureConfigService? secureConfig}) async {
+    if (_cachedConfig != null && secureConfig == null) return _cachedConfig!;
     final prefs = await SharedPreferences.getInstance();
     final secure = secureConfig ?? SecureConfigService();
     await secure.ensureMigrated();
-    return {
+    final config = {
       'baseUrl': prefs.getString('ai_base_url') ?? '',
       'apiKey': await secure.read('ai_api_key'),
       'model': prefs.getString('ai_model_name') ?? '',
     };
+    if (secureConfig == null) _cachedConfig = config;
+    return config;
+  }
+
+  /// Call this when the user updates AI settings to invalidate the cache.
+  static void clearConfigCache() {
+    _cachedConfig = null;
   }
 
   /// Parses a natural language string into a structured intent result

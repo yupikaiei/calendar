@@ -103,6 +103,10 @@ class SyncManager with WidgetsBindingObserver {
 
     // Process sync for each tracked calendar
     final allDbCalendars = await _db.getCalendars();
+
+    // Collect deleted UIDs once; remove from set once successfully deleted
+    final deletedUids = (await _db.getDeletedEventUids()).toSet();
+
     for (final dbCal in allDbCalendars) {
       final calendarPath = dbCal.urlPath;
       var cTag = await calDavService.getCTag(calendarPath);
@@ -139,17 +143,16 @@ class SyncManager with WidgetsBindingObserver {
         _logger.info('Pushed $pushCount events to ${dbCal.displayName}.');
       }
 
-      // 2. DELETE local deleted events
-      final deletedUids = await _db.getDeletedEventUids();
+      // 2. DELETE local deleted events (only UIDs not yet successfully deleted)
       int pushDeletedCount = 0;
-      for (final uid in deletedUids) {
-        // Notice: we iterate deletes across all to brute-force since we lack history of which dir it lived in.
+      for (final uid in deletedUids.toList()) {
         final success = await calDavService.deleteEvent(
           calendarPath,
           '$uid.ics',
         );
         if (success) {
           await _db.removeDeletedEventUid(uid);
+          deletedUids.remove(uid);
           pushDeletedCount++;
         }
       }

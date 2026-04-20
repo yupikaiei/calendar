@@ -10,6 +10,7 @@ import '../core/network/caldav_service.dart';
 import '../core/db/database.dart';
 import '../core/sync/sync_manager.dart';
 import '../core/sync/ical_parser.dart';
+import '../core/parsers/nlp_parser.dart';
 import 'utils.dart';
 import 'package:timezone/standalone.dart' as tz;
 
@@ -98,6 +99,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await prefs.setString('stt_base_url', _sttBaseUrlController.text.trim());
       await secure.write('stt_api_key', _sttApiKeyController.text.trim());
       await prefs.setString('stt_model_name', _sttModelController.text.trim());
+
+      // Invalidate cached NLP config so next parse picks up new settings
+      NlpParser.clearConfigCache();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

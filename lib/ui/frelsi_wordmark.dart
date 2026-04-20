@@ -2,7 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 /// A Flutter widget that animates the Frelsi Runic Wordmark
-/// mimicking the "carved" strike effect from the splash screen.
+/// with a modern, clean stroke aesthetic and gradient accent.
 class FrelsiWordmark extends StatefulWidget {
   const FrelsiWordmark({super.key});
 
@@ -52,18 +52,21 @@ class RunicWordmarkPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final Paint ironPaint = Paint()
       ..color = Colors.white
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // Gradient accent paint (purple → cyan) matching the new logo
+    final Paint accentPaint = Paint()
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.square;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF6C63FF), Color(0xFF03DAC6)],
+      ).createShader(const Rect.fromLTWH(230, 10, 50, 60));
 
-    final Paint emberPaint = Paint()
-      ..color = const Color(0xFFF59E0B)
-      ..strokeWidth = 5.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.square
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
-
-    // Scaling the paths based on the 320x80 viewBox
     double scale = size.width / 320;
     canvas.scale(scale);
 
@@ -84,61 +87,61 @@ class RunicWordmarkPainter extends CustomPainter {
       }
     }
 
-    // F (Fehu)
+    // F (Fehu) — clean diagonal arms
     final pathF = Path()
-      ..moveTo(20, 10)
-      ..lineTo(20, 70)
-      ..moveTo(20, 25)
-      ..lineTo(50, 5)
-      ..moveTo(20, 45)
-      ..lineTo(45, 25);
-    drawAnimatedPath(pathF, ironPaint, 0.0, 0.3);
+      ..moveTo(20, 12)
+      ..lineTo(20, 68)
+      ..moveTo(20, 22)
+      ..lineTo(48, 8)
+      ..moveTo(20, 40)
+      ..lineTo(42, 30);
+    drawAnimatedPath(pathF, ironPaint, 0.0, 0.20);
 
-    // R (Raido)
+    // R — rounded bowl
     final pathR = Path()
-      ..moveTo(70, 10)
-      ..lineTo(70, 70)
-      ..moveTo(70, 10)
-      ..lineTo(90, 10)
-      ..lineTo(105, 30)
-      ..lineTo(85, 45)
-      ..lineTo(70, 45)
-      ..moveTo(85, 45)
-      ..lineTo(110, 70);
-    drawAnimatedPath(pathR, ironPaint, 0.2, 0.5);
+      ..moveTo(65, 12)
+      ..lineTo(65, 68)
+      ..moveTo(65, 12)
+      ..lineTo(85, 12)
+      ..quadraticBezierTo(100, 12, 100, 28)
+      ..quadraticBezierTo(100, 42, 85, 42)
+      ..lineTo(65, 42)
+      ..moveTo(85, 42)
+      ..lineTo(105, 68);
+    drawAnimatedPath(pathR, ironPaint, 0.15, 0.38);
 
-    // E (Aggressive)
+    // E — clean horizontal arms
     final pathE = Path()
-      ..moveTo(140, 10)
-      ..lineTo(140, 70)
-      ..moveTo(140, 10)
-      ..lineTo(165, 25)
-      ..moveTo(140, 40)
-      ..lineTo(160, 40)
-      ..moveTo(140, 55)
-      ..lineTo(165, 70);
-    drawAnimatedPath(pathE, ironPaint, 0.4, 0.7);
+      ..moveTo(125, 12)
+      ..lineTo(125, 68)
+      ..moveTo(125, 12)
+      ..lineTo(150, 12)
+      ..moveTo(125, 40)
+      ..lineTo(147, 40)
+      ..moveTo(125, 68)
+      ..lineTo(150, 68);
+    drawAnimatedPath(pathE, ironPaint, 0.30, 0.52);
 
-    // L (Laguz)
+    // L — simple vertical + base
     final pathL = Path()
-      ..moveTo(190, 10)
-      ..lineTo(190, 70)
-      ..lineTo(220, 70);
-    drawAnimatedPath(pathL, ironPaint, 0.6, 0.8);
+      ..moveTo(170, 12)
+      ..lineTo(170, 68)
+      ..lineTo(195, 68);
+    drawAnimatedPath(pathL, ironPaint, 0.45, 0.62);
 
-    // S (Sowilo - Ember)
+    // S (Sowilö) — lightning bolt with gradient accent
     final pathS = Path()
-      ..moveTo(265, 10)
-      ..lineTo(240, 30)
-      ..lineTo(270, 50)
-      ..lineTo(245, 70);
-    drawAnimatedPath(pathS, emberPaint, 0.7, 0.95);
+      ..moveTo(255, 12)
+      ..lineTo(232, 32)
+      ..lineTo(258, 48)
+      ..lineTo(235, 68);
+    drawAnimatedPath(pathS, accentPaint, 0.55, 0.82);
 
-    // I (Isa)
+    // I — simple vertical
     final pathI = Path()
-      ..moveTo(295, 10)
-      ..lineTo(295, 70);
-    drawAnimatedPath(pathI, ironPaint, 0.8, 1.0);
+      ..moveTo(280, 12)
+      ..lineTo(280, 68);
+    drawAnimatedPath(pathI, ironPaint, 0.75, 1.0);
   }
 
   @override

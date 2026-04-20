@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:logging/logging.dart';
@@ -47,11 +48,13 @@ class _FrelsiCalAppState extends ConsumerState<FrelsiCalApp> {
   @override
   void initState() {
     super.initState();
-    tz.initializeTimeZones();
-    // Initialize the sync manager immediately so it starts listening to lifecycle events
-    ref.read(syncManagerProvider);
-    // Initialize notification service immediately so permissions can be requested
-    ref.read(notificationServiceProvider).init();
+    // Defer all heavy initialisation until after the first frame so the
+    // native splash screen stays visible and the app starts instantly.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      tz.initializeTimeZones();
+      ref.read(syncManagerProvider);
+      ref.read(notificationServiceProvider).init();
+    });
   }
 
   @override

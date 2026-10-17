@@ -7,10 +7,10 @@ A native Kotlin/Jetpack Compose implementation of Frelsi Cal. It preserves the F
 - **Agenda view** listing event days, with past events dimmed and a "Today" shortcut.
 - **Month view** with per-calendar color dots and a day agenda underneath.
 - **Event editor**: title, calendar, all-day toggle, start/end date and time, preset recurrence (daily/weekly/monthly/yearly) with an optional end date, reminders, location, description, and deletion.
-- **Recurrence expansion** driven by [lib-recur](https://github.com/dmfs/lib-recur), covering `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, and other RFC 5545 parts.
+- **Recurrence expansion** driven by [lib-recur](https://github.com/dmfs/lib-recur), covering `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, and other RFC 5545 parts. Local wall-clock times and all-day dates are preserved across DST changes.
 - **Offline-first SQLite storage** mirroring the Flutter schema (`events`, `calendars`, `reminders`, `deleted_events`).
 - **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, event upload, tombstone propagation, and ctag-based downloads.
-- **Reminders** scheduled through `AlarmManager` with exact-alarm support and rescheduling after reboot/app updates.
+- **Reminders** scheduled through `AlarmManager` with exact-alarm support and rescheduling after reboot/app updates. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires.
 - **Multiple calendars** with create, rename, recolor, and delete.
 - **ICS import** from the system file picker.
 - **Secondary timezone** display in event cards.

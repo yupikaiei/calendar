@@ -140,4 +140,58 @@ object RecurrenceExpander {
     }
 
     private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
+    /**
+     * Returns the start of the next occurrence at or after [afterMillis], or null
+     * when the event does not repeat again. Used to chain reminder alarms.
+     */
+    fun nextOccurrenceStart(
+        event: Event,
+        afterMillis: Long,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): Long? {
+        if (event.start >= afterMillis) return event.start
+        val ruleText = RecurrenceRules.normalize(event.recurrenceRule) ?: return null
+
+        return try {
+            val rule = RecurrenceRule(ruleText, RecurrenceRule.RfcMode.RFC5545_LAX)
+            val iteratorZone = if (event.allDay) UTC else TimeZone.getTimeZone(zone)
+            val startDateTime = if (event.allDay) {
+                val date = Instant.ofEpochMilli(event.start).atZone(zone).toLocalDate()
+                DateTime.parse(dateKey(date))
+            } else {
+                DateTime(iteratorZone, event.start)
+            }
+
+            val iterator = rule.iterator(startDateTime)
+            val forwardTo = if (event.allDay) {
+                val date = Instant.ofEpochMilli(afterMillis).atZone(zone).toLocalDate()
+                DateTime.parse(dateKey(date))
+            } else {
+                DateTime(iteratorZone, afterMillis)
+            }
+            iterator.fastForward(forwardTo)
+
+            var guard = 0
+            while (iterator.hasNext() && guard < MAX_INSTANCES) {
+                val occurrence = iterator.nextDateTime()
+                guard++
+                val start = if (event.allDay) {
+                    val date = Instant.ofEpochMilli(occurrence.timestamp)
+                        .atZone(ZoneOffset.UTC)
+                        .toLocalDate()
+                    date.atStartOfDay(zone).toInstant().toEpochMilli()
+                } else {
+                    occurrence.timestamp
+                }
+                if (start >= afterMillis) return start
+            }
+            null
+        } catch (exception: Exception) {
+            logger.log(Level.WARNING, "Unable to find next occurrence for \"$ruleText\"", exception)
+            null
+        }
+    }
+
+    private fun dateKey(date: LocalDate): String = date.toString().replace("-", "")
+
 }

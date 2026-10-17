@@ -9,25 +9,52 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.frelsical.nativeapp.R
 import com.frelsical.nativeapp.data.Event
-import com.frelsical.nativeapp.data.Reminder
-import java.time.Instant
+import com.frelsical.nativeapp.ical.RecurrenceExpander
 import java.time.ZoneId
 
 class ReminderScheduler(private val context: Context) {
 
-    fun schedule(event: Event, minutesBefore: Int) {
-        val triggerAt = event.start - minutesBefore * 60_000L
-        val pendingIntent = reminderIntent(event, minutesBefore)
+    /**
+     * Schedules the next reminder for this event, including occurrences of a
+     * repeating series. When the alarm fires, [ReminderReceiver] chains the
+     * following occurrence.
+     */
+    fun scheduleNext(
+        event: Event,
+        minutesBefore: Int,
+        afterMillis: Long = System.currentTimeMillis(),
+    ) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
+        val cancelIntent = reminderIntent(event.id, null, minutesBefore, -1L)
+        val offset = minutesBefore * 60_000L
+        val occurrenceStart = RecurrenceExpander.nextOccurrenceStart(
+            event = event,
+            afterMillis = afterMillis + offset,
+            zone = ZoneId.systemDefault(),
+        )
 
-        if (triggerAt <= System.currentTimeMillis()) {
-            alarmManager.cancel(pendingIntent)
+        if (occurrenceStart == null) {
+            Log.d(TAG, "No next occurrence for event ${event.id} (${event.title}); cancelling")
+            alarmManager.cancel(cancelIntent)
             return
         }
 
+        val triggerAt = occurrenceStart - offset
+        if (triggerAt < afterMillis) {
+            alarmManager.cancel(cancelIntent)
+            return
+        }
+
+        Log.d(
+            TAG,
+            "Scheduling event ${event.id} (${event.title}) minutes=$minutesBefore " +
+                "occurrence=$occurrenceStart trigger=$triggerAt now=${System.currentTimeMillis()}",
+        )
+        val pendingIntent = reminderIntent(event.id, event, minutesBefore, occurrenceStart)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
             // Without the exact-alarm grant an inexact alarm keeps reminders working.
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
@@ -38,21 +65,24 @@ class ReminderScheduler(private val context: Context) {
 
     fun cancel(eventId: Long, minutesBefore: Int) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
-        alarmManager.cancel(reminderIntent(eventId, null, minutesBefore))
+        Log.d(TAG, "Cancelling event $eventId minutes=$minutesBefore")
+        alarmManager.cancel(reminderIntent(eventId, null, minutesBefore, -1L))
     }
 
     fun cancelAll(eventId: Long, reminders: List<Int>) {
         reminders.forEach { cancel(eventId, it) }
     }
 
-    private fun reminderIntent(event: Event, minutesBefore: Int): PendingIntent {
-        return reminderIntent(event.id, event, minutesBefore)
-    }
-
-    private fun reminderIntent(eventId: Long, event: Event?, minutesBefore: Int): PendingIntent {
+    private fun reminderIntent(
+        eventId: Long,
+        event: Event?,
+        minutesBefore: Int,
+        occurrenceStart: Long,
+    ): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             putExtra(ReminderReceiver.EXTRA_EVENT_ID, eventId)
             putExtra(ReminderReceiver.EXTRA_MINUTES, minutesBefore)
+            putExtra(ReminderReceiver.EXTRA_OCCURRENCE_START, occurrenceStart)
             if (event != null) {
                 putExtra(ReminderReceiver.EXTRA_TITLE, event.title)
                 putExtra(ReminderReceiver.EXTRA_BODY, reminderBody(minutesBefore))
@@ -67,6 +97,7 @@ class ReminderScheduler(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "ReminderScheduler"
         const val CHANNEL_ID = "frelsi_cal_reminders"
 
         fun ensureChannel(context: Context) {

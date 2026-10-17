@@ -47,6 +47,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch { repository.reload() }
+        rescheduleReminders()
     }
 
     fun sync(showMessage: Boolean = true) {
@@ -60,6 +61,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 }
             } finally {
                 _syncing.value = false
+                rescheduleReminders()
             }
         }
     }
@@ -70,7 +72,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                 scheduler.cancelAll(event.id, previousReminders)
             }
             val saved = repository.saveEvent(event, reminderMinutes)
-            reminderMinutes.forEach { scheduler.schedule(saved, it) }
+            reminderMinutes.forEach { scheduler.scheduleNext(saved, it) }
             _messages.tryEmit(if (event.id == 0L) "Event created" else "Event updated")
         }
     }
@@ -208,6 +210,16 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     fun notify(message: String) {
         _messages.tryEmit(message)
+    }
+
+    private fun rescheduleReminders() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            app.database.getEventWithReminders().forEach { item ->
+                item.reminderMinutes.forEach { minutes ->
+                    scheduler.scheduleNext(item.event, minutes)
+                }
+            }
+        }
     }
 
     suspend fun remindersFor(eventId: Long): List<Int> = repository.getReminderMinutes(eventId)

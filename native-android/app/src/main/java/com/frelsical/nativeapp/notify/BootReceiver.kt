@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
                 val scheduler = ReminderScheduler(context)
                 for (item in app.database.getEventWithReminders()) {
                     for (minutes in item.reminderMinutes) {
-                        scheduler.schedule(item.event, minutes)
+                        scheduler.scheduleNext(item.event, minutes)
                     }
                 }
             } finally {

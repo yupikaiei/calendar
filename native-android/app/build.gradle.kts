@@ -30,6 +30,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // TODO: Replace with a dedicated release keystore before publishing to Play Store.
+            // The Flutter build uses the debug key as well so GitHub APKs stay installable.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

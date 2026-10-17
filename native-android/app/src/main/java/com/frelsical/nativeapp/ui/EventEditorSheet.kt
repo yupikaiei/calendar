@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.frelsical.nativeapp.data.CalendarRecord
 import com.frelsical.nativeapp.data.Event
+import com.frelsical.nativeapp.data.Occurrence
 import com.frelsical.nativeapp.ical.RecurrenceRules
 import com.frelsical.nativeapp.ui.theme.parseCalendarColor
 import java.time.Instant
@@ -81,21 +82,24 @@ import java.util.UUID
 @Composable
 fun EventEditorSheet(
     event: Event?,
+    occurrence: Occurrence?,
     initialDate: LocalDate,
     calendars: List<CalendarRecord>,
     onDismiss: () -> Unit,
     viewModel: CalendarViewModel,
 ) {
     val zone: ZoneId = remember { ZoneId.systemDefault() }
-    val defaultStart = remember(event?.id, initialDate) {
-        event?.start ?: DateFormats.combine(
+    val context = LocalContext.current
+    val editingOccurrence = occurrence != null
+    val defaultStart = remember(event?.id, occurrence?.start, initialDate) {
+        occurrence?.start ?: event?.start ?: DateFormats.combine(
             initialDate,
             LocalTime.now().withSecond(0).withNano(0),
             zone,
         )
     }
-    val defaultEnd = remember(event?.id) {
-        event?.end ?: (defaultStart + 60 * 60 * 1000L)
+    val defaultEnd = remember(event?.id, occurrence?.start) {
+        occurrence?.end ?: event?.end ?: (defaultStart + 60 * 60 * 1000L)
     }
 
     var title by rememberSaveable { mutableStateOf(event?.title.orEmpty()) }
@@ -126,6 +130,7 @@ fun EventEditorSheet(
     var showReminderDialog by remember { mutableStateOf(false) }
     var datePickerTarget by remember { mutableStateOf<DateTarget?>(null) }
     var timePickerTarget by remember { mutableStateOf<TimeTarget?>(null) }
+    val exactAlarmsAllowed = viewModel.canScheduleExactAlarms()
 
     LaunchedEffect(event?.id) {
         if (event != null) {
@@ -160,13 +165,25 @@ fun EventEditorSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
-                Text(
-                    text = if (event == null) "New Event" else "Edit Event",
-                    modifier = Modifier.weight(1f),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            editingOccurrence -> "Edit Occurrence"
+                            event == null -> "New Event"
+                            else -> "Edit Event"
+                        },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                    if (editingOccurrence) {
+                        Text(
+                            text = "This occurrence only",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                }
                 if (event != null) {
                     IconButton(onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
@@ -192,21 +209,42 @@ fun EventEditorSheet(
                         viewModel.notify("End time must be after the start time.")
                         return@TextButton
                     }
-                    val saved = Event(
-                        id = event?.id ?: 0L,
-                        uid = event?.uid ?: UUID.randomUUID().toString(),
-                        title = title.trim(),
-                        start = start,
-                        end = end,
-                        description = description.trim().takeIf { it.isNotEmpty() },
-                        location = location.trim().takeIf { it.isNotEmpty() },
-                        recurrenceRule = recurrence?.let {
-                            RecurrenceRules.withUntil(it, recurrenceEndDate, zone)
-                        },
-                        calendarId = selectedCalendarId,
-                        allDay = allDay,
-                    )
-                    viewModel.saveEvent(saved, reminders, originalReminders)
+                    if (event != null && occurrence != null) {
+                        val standalone = Event(
+                            uid = UUID.randomUUID().toString(),
+                            title = title.trim(),
+                            start = start,
+                            end = end,
+                            description = description.trim().takeIf { it.isNotEmpty() },
+                            location = location.trim().takeIf { it.isNotEmpty() },
+                            recurrenceRule = null,
+                            calendarId = selectedCalendarId,
+                            allDay = allDay,
+                        )
+                        viewModel.saveOccurrence(
+                            baseEvent = event,
+                            occurrenceStart = occurrence.start,
+                            editedEvent = standalone,
+                            reminderMinutes = reminders,
+                        )
+                    } else {
+                        val saved = Event(
+                            id = event?.id ?: 0L,
+                            uid = event?.uid ?: UUID.randomUUID().toString(),
+                            title = title.trim(),
+                            start = start,
+                            end = end,
+                            description = description.trim().takeIf { it.isNotEmpty() },
+                            location = location.trim().takeIf { it.isNotEmpty() },
+                            recurrenceRule = recurrence?.let {
+                                RecurrenceRules.withUntil(it, recurrenceEndDate, zone)
+                            },
+                            calendarId = selectedCalendarId,
+                            allDay = allDay,
+                            excludedStarts = event?.excludedStarts ?: emptySet(),
+                        )
+                        viewModel.saveEvent(saved, reminders, originalReminders)
+                    }
                     onDismiss()
                 }) {
                     Text("Save", fontWeight = FontWeight.Bold)
@@ -298,46 +336,48 @@ fun EventEditorSheet(
                     }
                 }
 
-                item {
-                    val options = buildList {
-                        add(null to "Does not repeat")
-                        add(RecurrenceRules.DAILY to "Every Day")
-                        add(RecurrenceRules.WEEKLY to "Every Week")
-                        add(RecurrenceRules.MONTHLY to "Every Month")
-                        add(RecurrenceRules.YEARLY to "Every Year")
-                        val current = recurrence
-                        if (current != null && !RecurrenceRules.isPreset(current)) {
-                            add(current to "Custom")
-                        }
-                    }
-                    DropdownField(
-                        label = "Repeat",
-                        selected = recurrence,
-                        options = options,
-                        onSelect = { value ->
-                            recurrence = value
-                            if (value == null) recurrenceEndDate = null
-                        },
-                    )
-                }
-
-                if (recurrence != null) {
+                if (!editingOccurrence) {
                     item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text("Ends", color = Color.White.copy(alpha = 0.8f))
-                            OutlinedButton(
-                                onClick = { datePickerTarget = DateTarget.RecurrenceEnd },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(recurrenceEndDate?.let(DateFormats::isoDate) ?: "Never")
+                        val options = buildList {
+                            add(null to "Does not repeat")
+                            add(RecurrenceRules.DAILY to "Every Day")
+                            add(RecurrenceRules.WEEKLY to "Every Week")
+                            add(RecurrenceRules.MONTHLY to "Every Month")
+                            add(RecurrenceRules.YEARLY to "Every Year")
+                            val current = recurrence
+                            if (current != null && !RecurrenceRules.isPreset(current)) {
+                                add(current to "Custom")
                             }
-                            if (recurrenceEndDate != null) {
-                                IconButton(onClick = { recurrenceEndDate = null }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Remove end date")
+                        }
+                        DropdownField(
+                            label = "Repeat",
+                            selected = recurrence,
+                            options = options,
+                            onSelect = { value ->
+                                recurrence = value
+                                if (value == null) recurrenceEndDate = null
+                            },
+                        )
+                    }
+
+                    if (recurrence != null) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text("Ends", color = Color.White.copy(alpha = 0.8f))
+                                OutlinedButton(
+                                    onClick = { datePickerTarget = DateTarget.RecurrenceEnd },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(recurrenceEndDate?.let(DateFormats::isoDate) ?: "Never")
+                                }
+                                if (recurrenceEndDate != null) {
+                                    IconButton(onClick = { recurrenceEndDate = null }) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Remove end date")
+                                    }
                                 }
                             }
                         }
@@ -387,6 +427,20 @@ fun EventEditorSheet(
                                 },
                             )
                         }
+                        if (reminders.isNotEmpty() && !exactAlarmsAllowed) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Reminders may be delayed. Allow exact alarms to keep them on time.",
+                                    modifier = Modifier.weight(1f),
+                                    fontSize = 13.sp,
+                                    color = Color.White.copy(alpha = 0.65f),
+                                )
+                                TextButton(onClick = { openExactAlarmSettings(context) }) {
+                                    Text("Enable")
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -418,22 +472,32 @@ fun EventEditorSheet(
     if (showDeleteConfirm && event != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete event?") },
+            title = {
+                Text(if (editingOccurrence) "Delete this occurrence?" else "Delete event?")
+            },
             text = {
-                val localOnly = calendars.firstOrNull { it.id == event.calendarId }
-                    ?.urlPath?.startsWith("/local/") == true
-                Text(
-                    if (localOnly) {
-                        "This event will be deleted from this device."
-                    } else {
-                        "This event will also be removed from the connected CalDAV server."
-                    },
-                )
+                if (editingOccurrence) {
+                    Text("Only this occurrence will be removed from the repeating series.")
+                } else {
+                    val localOnly = calendars.firstOrNull { it.id == event.calendarId }
+                        ?.urlPath?.startsWith("/local/") == true
+                    Text(
+                        if (localOnly) {
+                            "This event will be deleted from this device."
+                        } else {
+                            "This event will also be removed from the connected CalDAV server."
+                        },
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
-                    viewModel.deleteEvent(event, reminders)
+                    if (occurrence != null) {
+                        viewModel.deleteOccurrence(event, occurrence.start)
+                    } else {
+                        viewModel.deleteEvent(event, reminders)
+                    }
                     onDismiss()
                 }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)

@@ -48,6 +48,10 @@ fun MonthView(
     selectedDay: LocalDate,
     onSelectedDayChange: (LocalDate) -> Unit,
     secondaryTimezone: String?,
+    windowStart: LocalDate,
+    windowEnd: LocalDate,
+    onExtendPast: () -> Unit,
+    onExtendFuture: () -> Unit,
     onEventClick: (Occurrence) -> Unit,
 ) {
     var monthCursor by rememberSaveable { mutableStateOf(YearMonth.from(selectedDay).toString()) }
@@ -56,8 +60,16 @@ fun MonthView(
     Column(Modifier.fillMaxWidth()) {
         MonthHeader(
             currentMonth = currentMonth,
-            onPrevious = { monthCursor = currentMonth.minusMonths(1).toString() },
-            onNext = { monthCursor = currentMonth.plusMonths(1).toString() },
+            onPrevious = {
+                val previous = currentMonth.minusMonths(1)
+                monthCursor = previous.toString()
+                if (!previous.atDay(1).isAfter(windowStart)) onExtendPast()
+            },
+            onNext = {
+                val next = currentMonth.plusMonths(1)
+                monthCursor = next.toString()
+                if (!next.atEndOfMonth().isBefore(windowEnd)) onExtendFuture()
+            },
             onToday = {
                 val today = LocalDate.now()
                 monthCursor = YearMonth.from(today).toString()

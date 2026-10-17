@@ -85,6 +85,33 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Saves a single occurrence as an independent event and excludes it from the
+     * recurring series.
+     */
+    fun saveOccurrence(
+        baseEvent: Event,
+        occurrenceStart: Long,
+        editedEvent: Event,
+        reminderMinutes: List<Int>,
+    ) {
+        viewModelScope.launch {
+            val saved = repository.saveEvent(editedEvent, reminderMinutes)
+            repository.addRecurrenceException(baseEvent.id, occurrenceStart)
+            reminderMinutes.forEach { scheduler.scheduleNext(saved, it) }
+            rescheduleReminders()
+            _messages.tryEmit("Occurrence updated")
+        }
+    }
+
+    fun deleteOccurrence(baseEvent: Event, occurrenceStart: Long) {
+        viewModelScope.launch {
+            repository.addRecurrenceException(baseEvent.id, occurrenceStart)
+            rescheduleReminders()
+            _messages.tryEmit("Occurrence deleted")
+        }
+    }
+
     fun saveCalDavSettings(serverUrl: String, username: String, password: String) {
         settings.serverUrl = serverUrl
         settings.username = username

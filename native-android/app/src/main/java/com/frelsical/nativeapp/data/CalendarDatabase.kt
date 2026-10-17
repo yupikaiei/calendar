@@ -58,12 +58,31 @@ class CalendarDatabase(context: Context) :
             )
             """.trimIndent(),
         )
+        db.execSQL(
+            """
+            CREATE TABLE recurrence_exceptions (
+                event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                occurrence_start INTEGER NOT NULL,
+                PRIMARY KEY (event_id, occurrence_start)
+            )
+            """.trimIndent(),
+        )
         db.execSQL("CREATE INDEX idx_events_calendar ON events(calendar_id)")
         db.execSQL("CREATE INDEX idx_reminders_event ON reminders(event_id)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Version 1 is the initial native schema. Future migrations should be additive.
+        if (oldVersion < 2) {
+            db.execSQL(
+                """
+                CREATE TABLE recurrence_exceptions (
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                    occurrence_start INTEGER NOT NULL,
+                    PRIMARY KEY (event_id, occurrence_start)
+                )
+                """.trimIndent(),
+            )
+        }
     }
 
     // --- Events ---
@@ -81,11 +100,18 @@ class CalendarDatabase(context: Context) :
             ORDER BY e.start_date ASC
             """.trimIndent()
 
+        val exceptions = readRecurrenceExceptions()
         return readableDatabase.rawQuery(sql, null).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     val calendar = cursor.toCalendarOrNull(prefix = "c_")
-                    add(EventWithCalendar(cursor.toEvent(), calendar))
+                    val event = cursor.toEvent()
+                    add(
+                        EventWithCalendar(
+                            event.copy(excludedStarts = exceptions[event.id].orEmpty()),
+                            calendar,
+                        ),
+                    )
                 }
             }
         }
@@ -101,7 +127,7 @@ class CalendarDatabase(context: Context) :
             null,
             null,
         ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.toEvent() else null
+            if (cursor.moveToFirst()) attachExceptions(cursor.toEvent()) else null
         }
     }
 
@@ -116,7 +142,7 @@ class CalendarDatabase(context: Context) :
             "id ASC",
             "1",
         ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.toEvent() else null
+            if (cursor.moveToFirst()) attachExceptions(cursor.toEvent()) else null
         }
     }
 
@@ -136,6 +162,75 @@ class CalendarDatabase(context: Context) :
 
     fun deleteEvent(id: Long) {
         writableDatabase.delete("events", "id = ?", arrayOf(id.toString()))
+    }
+
+    // --- Recurrence exceptions ---
+
+    fun getRecurrenceExceptions(eventId: Long): Set<Long> {
+        return readableDatabase.query(
+            "recurrence_exceptions",
+            arrayOf("occurrence_start"),
+            "event_id = ?",
+            arrayOf(eventId.toString()),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) add(cursor.getLong(0))
+            }
+        }
+    }
+
+    fun addRecurrenceException(eventId: Long, occurrenceStart: Long) {
+        writableDatabase.insertWithOnConflict(
+            "recurrence_exceptions",
+            null,
+            ContentValues().apply {
+                put("event_id", eventId)
+                put("occurrence_start", occurrenceStart)
+            },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+    }
+
+    fun replaceRecurrenceExceptions(eventId: Long, starts: Set<Long>) {
+        writableDatabase.inTransaction {
+            delete("recurrence_exceptions", "event_id = ?", arrayOf(eventId.toString()))
+            for (start in starts) {
+                insertWithOnConflict(
+                    "recurrence_exceptions",
+                    null,
+                    ContentValues().apply {
+                        put("event_id", eventId)
+                        put("occurrence_start", start)
+                    },
+                    SQLiteDatabase.CONFLICT_IGNORE,
+                )
+            }
+        }
+    }
+
+    private fun readRecurrenceExceptions(): Map<Long, Set<Long>> {
+        return readableDatabase.query(
+            "recurrence_exceptions",
+            arrayOf("event_id", "occurrence_start"),
+            null,
+            null,
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            buildMap<Long, MutableSet<Long>> {
+                while (cursor.moveToNext()) {
+                    getOrPut(cursor.getLong(0)) { mutableSetOf() }.add(cursor.getLong(1))
+                }
+            }
+        }
+    }
+
+    private fun attachExceptions(event: Event): Event {
+        return event.copy(excludedStarts = getRecurrenceExceptions(event.id))
     }
 
     fun getEventWithReminders(): List<EventWithReminders> {
@@ -399,4 +494,4 @@ private fun Event.toValues(includeId: Boolean): ContentValues {
 }
 
 private const val DATABASE_NAME = "frelsi_cal_native.db"
-private const val DATABASE_VERSION = 1
+private const val DATABASE_VERSION = 2

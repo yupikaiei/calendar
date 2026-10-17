@@ -66,7 +66,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import com.frelsical.nativeapp.data.CalendarRecord
 import com.frelsical.nativeapp.notify.ReminderScheduler
 import com.frelsical.nativeapp.ui.theme.parseCalendarColor
@@ -241,23 +240,7 @@ fun SettingsScreen(
                 if (!exactAlarmsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     item {
                         OutlinedButton(
-                            onClick = {
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(
-                                            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                                            "package:${context.packageName}".toUri(),
-                                        ),
-                                    )
-                                }.onFailure {
-                                    context.startActivity(
-                                        Intent(
-                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                            "package:${context.packageName}".toUri(),
-                                        ),
-                                    )
-                                }
-                            },
+                            onClick = { openExactAlarmSettings(context) },
                         ) { Text("Allow exact alarms") }
                     }
                 }

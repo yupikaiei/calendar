@@ -20,11 +20,12 @@ data class ParsedEvent(
     val description: String?,
     val location: String?,
     val recurrenceRule: String?,
+    val excludedStarts: Set<Long> = emptySet(),
 )
 
 /**
  * Small, dependency-free iCalendar reader/writer covering the VEVENT subset the
- * app uses (UID, SUMMARY, DTSTART, DTEND, DESCRIPTION, LOCATION, RRULE).
+ * app uses (UID, SUMMARY, DTSTART, DTEND, DESCRIPTION, LOCATION, RRULE, EXDATE).
  */
 object IcsParser {
 
@@ -44,7 +45,7 @@ object IcsParser {
         zone: ZoneId = ZoneId.systemDefault(),
     ): List<ParsedEvent> {
         val events = mutableListOf<ParsedEvent>()
-        var current: MutableMap<String, Property>? = null
+        var current: MutableMap<String, MutableList<Property>>? = null
         var nestedDepth = 0
 
         for (line in unfold(icsData)) {
@@ -74,7 +75,7 @@ object IcsParser {
                 }
 
                 else -> if (current != null && nestedDepth == 0) {
-                    current.putIfAbsent(property.name, property)
+                    current.getOrPut(property.name) { mutableListOf() }.add(property)
                 }
             }
         }
@@ -125,6 +126,20 @@ object IcsParser {
         event.recurrenceRule?.takeIf { it.isNotBlank() }?.let {
             val rule = it.removePrefix("RRULE:")
             lines += "RRULE:$rule"
+            if (event.excludedStarts.isNotEmpty()) {
+                if (event.allDay) {
+                    val dates = event.excludedStarts.sorted()
+                        .map { millis -> Instant.ofEpochMilli(millis).atZone(zone).toLocalDate() }
+                        .distinct()
+                        .joinToString(",") { basicDate.format(it) }
+                    lines += "EXDATE;VALUE=DATE:$dates"
+                } else {
+                    val instants = event.excludedStarts.sorted()
+                        .distinct()
+                        .joinToString(",") { formatUtc(it) }
+                    lines += "EXDATE:$instants"
+                }
+            }
         }
 
         lines += "END:VEVENT"
@@ -133,10 +148,15 @@ object IcsParser {
         return lines.joinToString("\r\n", postfix = "\r\n") { fold(it) }
     }
 
-    private fun mapEvent(properties: Map<String, Property>, zone: ZoneId): ParsedEvent? {
-        val startProperty = properties["DTSTART"] ?: return null
+    private fun mapEvent(
+        properties: Map<String, MutableList<Property>>,
+        zone: ZoneId,
+    ): ParsedEvent? {
+        fun first(name: String): Property? = properties[name]?.firstOrNull()
+
+        val startProperty = first("DTSTART") ?: return null
         val start = parseDate(startProperty, zone) ?: return null
-        val end = properties["DTEND"]?.let { parseDate(it, zone) }
+        val end = first("DTEND")?.let { parseDate(it, zone) }
 
         val endMillis = when {
             end == null && start.allDay -> start.millis + Duration.DAY_MILLIS
@@ -145,21 +165,34 @@ object IcsParser {
             else -> end.millis
         }
 
-        val rule = properties["RRULE"]?.value?.trim()?.let { raw ->
+        val rule = first("RRULE")?.value?.trim()?.let { raw ->
             raw.removePrefix("RRULE:").takeIf { it.contains("FREQ=", ignoreCase = true) }
         }
 
+        val exclusions = properties["EXDATE"].orEmpty()
+            .flatMap { property ->
+                property.value.split(',').mapNotNull { raw ->
+                    if (raw.isBlank()) {
+                        null
+                    } else {
+                        parseDate(property.copy(value = raw.trim()), zone)?.millis
+                    }
+                }
+            }
+            .toSet()
+
         return ParsedEvent(
-            uid = properties["UID"]?.value?.trim()?.takeIf { it.isNotEmpty() }
+            uid = first("UID")?.value?.trim()?.takeIf { it.isNotEmpty() }
                 ?: UUID.randomUUID().toString(),
-            title = properties["SUMMARY"]?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() }
+            title = first("SUMMARY")?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() }
                 ?: "Untitled",
             start = start.millis,
             end = endMillis,
             allDay = start.allDay,
-            description = properties["DESCRIPTION"]?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() },
-            location = properties["LOCATION"]?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() },
+            description = first("DESCRIPTION")?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() },
+            location = first("LOCATION")?.value?.let(::unescapeText)?.takeIf { it.isNotBlank() },
             recurrenceRule = rule,
+            excludedStarts = exclusions,
         )
     }
 

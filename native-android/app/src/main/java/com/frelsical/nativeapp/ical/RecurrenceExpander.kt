@@ -34,12 +34,14 @@ object RecurrenceExpander {
 
         for (item in events) {
             val event = item.event
-            val base = occurrenceFor(event, item.calendar, event.start, event.end, zone)
-            result.getOrPut(base.date) { mutableListOf() }.add(base)
+            if (event.start !in event.excludedStarts) {
+                val base = occurrenceFor(event, item.calendar, event.start, event.end, zone)
+                result.getOrPut(base.date) { mutableListOf() }.add(base)
+            }
 
             val rule = RecurrenceRules.normalize(event.recurrenceRule) ?: continue
             for (instance in expandRule(event, rule, windowStart, windowEnd, zone)) {
-                if (instance.start == event.start) continue
+                if (instance.start == event.start || instance.start in event.excludedStarts) continue
                 val occurrence = occurrenceFor(
                     event,
                     item.calendar,
@@ -149,7 +151,7 @@ object RecurrenceExpander {
         afterMillis: Long,
         zone: ZoneId = ZoneId.systemDefault(),
     ): Long? {
-        if (event.start >= afterMillis) return event.start
+        if (event.start >= afterMillis && event.start !in event.excludedStarts) return event.start
         val ruleText = RecurrenceRules.normalize(event.recurrenceRule) ?: return null
 
         return try {
@@ -183,7 +185,7 @@ object RecurrenceExpander {
                 } else {
                     occurrence.timestamp
                 }
-                if (start >= afterMillis) return start
+                if (start >= afterMillis && start !in event.excludedStarts) return start
             }
             null
         } catch (exception: Exception) {

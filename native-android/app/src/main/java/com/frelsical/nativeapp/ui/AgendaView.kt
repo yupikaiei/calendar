@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -57,15 +58,17 @@ fun AgendaView(
     secondaryTimezone: String?,
     scrollToTodaySignal: Int,
     onEventClick: (Occurrence) -> Unit,
+    onExtendPast: () -> Unit,
+    onExtendFuture: () -> Unit,
 ) {
     val days = remember(dayEvents) { dayEvents.keys.sorted() }
     val today = LocalDate.now()
     val todayIndex = days.indexOf(today).coerceAtLeast(0)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex + 1)
 
     LaunchedEffect(scrollToTodaySignal) {
         if (scrollToTodaySignal > 0) {
-            listState.animateScrollToItem(todayIndex)
+            listState.animateScrollToItem(todayIndex + 1)
         }
     }
 
@@ -73,6 +76,16 @@ fun AgendaView(
         state = listState,
         contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
     ) {
+        item(key = "load-past") {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(onClick = onExtendPast) {
+                    Text("Load earlier events")
+                }
+            }
+        }
         items(days, key = { it.toEpochDay() }) { date ->
             DayRow(
                 date = date,
@@ -80,6 +93,16 @@ fun AgendaView(
                 secondaryTimezone = secondaryTimezone,
                 onEventClick = onEventClick,
             )
+        }
+        item(key = "load-future") {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(onClick = onExtendFuture) {
+                    Text("Load more events")
+                }
+            }
         }
     }
 }

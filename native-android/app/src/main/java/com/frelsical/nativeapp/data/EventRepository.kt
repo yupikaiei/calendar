@@ -3,6 +3,7 @@ package com.frelsical.nativeapp.data
 import android.content.Context
 import android.net.Uri
 import com.frelsical.nativeapp.ical.IcsParser
+import com.frelsical.nativeapp.ical.RecurrenceRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +36,7 @@ class EventRepository(
 
     suspend fun saveEvent(event: Event, reminderMinutes: List<Int>): Event =
         withContext(Dispatchers.IO) {
+            val previous = event.id.takeIf { it != 0L }?.let(database::getEvent)
             val saved = if (event.id == 0L) {
                 val id = database.insertEvent(event)
                 event.copy(id = id)
@@ -42,9 +44,25 @@ class EventRepository(
                 database.updateEvent(event)
                 event
             }
+            val preserveExceptions = previous != null &&
+                baseRule(previous.recurrenceRule) == baseRule(saved.recurrenceRule)
+            database.replaceRecurrenceExceptions(
+                saved.id,
+                if (saved.recurrenceRule != null && preserveExceptions) {
+                    saved.excludedStarts
+                } else {
+                    emptySet()
+                },
+            )
             database.replaceReminders(saved.id, reminderMinutes)
             reload()
             saved
+        }
+
+    suspend fun addRecurrenceException(eventId: Long, occurrenceStart: Long) =
+        withContext(Dispatchers.IO) {
+            database.addRecurrenceException(eventId, occurrenceStart)
+            reload()
         }
 
     suspend fun deleteEvent(event: Event) = withContext(Dispatchers.IO) {
@@ -126,6 +144,10 @@ class EventRepository(
         database.deleteCalendar(calendarId)
         reload()
     }
+}
+
+private fun baseRule(rule: String?): String? {
+    return RecurrenceRules.normalize(rule)?.let(RecurrenceRules::stripUntil)
 }
 
 data class ImportResult(val importedCount: Int, val message: String)

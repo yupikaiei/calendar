@@ -21,6 +21,8 @@ data class Event(
     val recurrenceRule: String? = null,
     val calendarId: Long? = null,
     val allDay: Boolean = false,
+    /** Original occurrence starts that were edited or deleted individually. */
+    val excludedStarts: Set<Long> = emptySet(),
 )
 
 data class Reminder(

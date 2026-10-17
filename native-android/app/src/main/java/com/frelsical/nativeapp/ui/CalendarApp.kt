@@ -7,6 +7,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -46,6 +48,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.frelsical.nativeapp.data.Event
+import com.frelsical.nativeapp.data.Occurrence
 import com.frelsical.nativeapp.ical.RecurrenceExpander
 import java.time.LocalDate
 import java.time.ZoneId
@@ -69,6 +72,8 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     var editorVisible by remember { mutableStateOf(false) }
     var editorEvent by remember { mutableStateOf<Event?>(null) }
     var editorDate by remember { mutableStateOf(LocalDate.now()) }
+    var editorOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    var scopeOccurrence by remember { mutableStateOf<Occurrence?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
@@ -86,14 +91,34 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     }
 
     val zone = remember { ZoneId.systemDefault() }
-    val days = remember(events, zone) {
-        val today = LocalDate.now(zone)
+    var windowStart by rememberSaveable { mutableStateOf(LocalDate.now(zone).minusYears(2)) }
+    var windowEnd by rememberSaveable { mutableStateOf(LocalDate.now(zone).plusYears(5)) }
+    val days = remember(events, zone, windowStart, windowEnd) {
         RecurrenceExpander.expand(
             events = events,
-            windowStart = today.minusYears(2).atStartOfDay(zone).toInstant(),
-            windowEnd = today.plusYears(5).atStartOfDay(zone).toInstant(),
+            windowStart = windowStart.atStartOfDay(zone).toInstant(),
+            windowEnd = windowEnd.atStartOfDay(zone).toInstant(),
             zone = zone,
         )
+    }
+
+    fun extendPast() {
+        windowStart = windowStart.minusYears(5)
+    }
+
+    fun extendFuture() {
+        windowEnd = windowEnd.plusYears(5)
+    }
+
+    fun openOccurrence(occurrence: Occurrence) {
+        if (occurrence.event.recurrenceRule != null) {
+            scopeOccurrence = occurrence
+        } else {
+            editorEvent = occurrence.event
+            editorDate = occurrence.date
+            editorOccurrence = null
+            editorVisible = true
+        }
     }
 
     if (showSettings) {
@@ -175,6 +200,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                     containerColor = MaterialTheme.colorScheme.primary,
                     onClick = {
                         editorEvent = null
+                        editorOccurrence = null
                         editorDate = if (viewMode == ViewMode.Month) selectedDay else LocalDate.now()
                         editorVisible = true
                     },
@@ -189,11 +215,9 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                         dayEvents = days,
                         secondaryTimezone = secondaryTimezone,
                         scrollToTodaySignal = scrollToTodaySignal,
-                        onEventClick = { occurrence ->
-                            editorEvent = occurrence.event
-                            editorDate = occurrence.date
-                            editorVisible = true
-                        },
+                        onEventClick = ::openOccurrence,
+                        onExtendPast = ::extendPast,
+                        onExtendFuture = ::extendFuture,
                     )
 
                     ViewMode.Month -> MonthView(
@@ -201,11 +225,11 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                         selectedDay = selectedDay,
                         onSelectedDayChange = { selectedDay = it },
                         secondaryTimezone = secondaryTimezone,
-                        onEventClick = { occurrence ->
-                            editorEvent = occurrence.event
-                            editorDate = occurrence.date
-                            editorVisible = true
-                        },
+                        windowStart = windowStart,
+                        windowEnd = windowEnd,
+                        onExtendPast = ::extendPast,
+                        onExtendFuture = ::extendFuture,
+                        onEventClick = ::openOccurrence,
                     )
                 }
             }
@@ -215,10 +239,48 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     if (editorVisible) {
         EventEditorSheet(
             event = editorEvent,
+            occurrence = editorOccurrence,
             initialDate = editorDate,
             calendars = calendars,
-            onDismiss = { editorVisible = false },
+            onDismiss = {
+                editorVisible = false
+                editorOccurrence = null
+            },
             viewModel = viewModel,
+        )
+    }
+
+    scopeOccurrence?.let { occurrence ->
+        AlertDialog(
+            onDismissRequest = { scopeOccurrence = null },
+            title = { Text("Repeating event") },
+            text = { Text("Edit this occurrence or the entire series?") },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { scopeOccurrence = null }) {
+                        Text("Cancel")
+                    }
+                    TextButton(onClick = {
+                        scopeOccurrence = null
+                        editorEvent = occurrence.event
+                        editorDate = occurrence.date
+                        editorOccurrence = null
+                        editorVisible = true
+                    }) {
+                        Text("All events")
+                    }
+                    TextButton(onClick = {
+                        scopeOccurrence = null
+                        editorEvent = occurrence.event
+                        editorDate = occurrence.date
+                        editorOccurrence = occurrence
+                        editorVisible = true
+                    }) {
+                        Text("This event")
+                    }
+                }
+            },
+            dismissButton = {},
         )
     }
 }

@@ -371,4 +371,102 @@ class RecurrenceExpanderTest {
             next,
         )
     }
+
+    @Test
+    fun excludedBaseOccurrenceIsHidden() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = "FREQ=DAILY;COUNT=3",
+        ).copy(
+            excludedStarts = setOf(Instant.parse("2026-01-01T10:00:00Z").toEpochMilli()),
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2025-12-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-02-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        val occurrences = result.values.flatten().filter { it.event.uid == event.uid }
+        assertEquals(2, occurrences.size)
+        assertEquals(
+            listOf(LocalDate.of(2026, 1, 2), LocalDate.of(2026, 1, 3)),
+            occurrences.sortedBy { it.start }.map { it.date },
+        )
+    }
+
+    @Test
+    fun excludedRecurringInstanceIsHidden() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = "FREQ=DAILY;COUNT=3",
+        ).copy(
+            excludedStarts = setOf(Instant.parse("2026-01-02T10:00:00Z").toEpochMilli()),
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2025-12-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-02-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        val dates = result.values.flatten()
+            .filter { it.event.uid == event.uid }
+            .sortedBy { it.start }
+            .map { it.date }
+        assertEquals(listOf(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 3)), dates)
+    }
+
+    @Test
+    fun nextOccurrenceSkipsExcludedStarts() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = "FREQ=DAILY;COUNT=3",
+        )
+
+        assertEquals(
+            Instant.parse("2026-01-01T10:00:00Z").toEpochMilli(),
+            RecurrenceExpander.nextOccurrenceStart(
+                event.copy(
+                    excludedStarts = setOf(
+                        Instant.parse("2026-01-03T10:00:00Z").toEpochMilli(),
+                    ),
+                ),
+                Instant.parse("2025-12-31T00:00:00Z").toEpochMilli(),
+                utc,
+            ),
+        )
+
+        assertEquals(
+            Instant.parse("2026-01-03T10:00:00Z").toEpochMilli(),
+            RecurrenceExpander.nextOccurrenceStart(
+                event.copy(
+                    excludedStarts = setOf(
+                        Instant.parse("2026-01-02T10:00:00Z").toEpochMilli(),
+                    ),
+                ),
+                Instant.parse("2026-01-01T12:00:00Z").toEpochMilli(),
+                utc,
+            ),
+        )
+
+        assertEquals(
+            null,
+            RecurrenceExpander.nextOccurrenceStart(
+                event.copy(
+                    excludedStarts = setOf(
+                        Instant.parse("2026-01-02T10:00:00Z").toEpochMilli(),
+                        Instant.parse("2026-01-03T10:00:00Z").toEpochMilli(),
+                    ),
+                ),
+                Instant.parse("2026-01-01T12:00:00Z").toEpochMilli(),
+                utc,
+            ),
+        )
+    }
 }

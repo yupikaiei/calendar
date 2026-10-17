@@ -6,8 +6,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Calendar reminders need exact alarms; the app falls back to inexact alarms when denied. -->
+    <!-- Calendar reminders rely on exact alarms. USE_EXACT_ALARM is auto-granted to
+         qualifying alarm/calendar apps on Android 13+; SCHEDULE_EXACT_ALARM covers
+         older releases and user-granted access. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application

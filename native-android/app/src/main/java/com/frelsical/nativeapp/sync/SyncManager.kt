@@ -113,8 +113,15 @@ class SyncManager(
                             recurrenceRule = parsed.recurrenceRule,
                             calendarId = calendar.id,
                             allDay = parsed.allDay,
+                            excludedStarts = parsed.excludedStarts,
                         )
-                        if (existing == null) database.insertEvent(event) else database.updateEvent(event)
+                        val eventId = if (existing == null) {
+                            database.insertEvent(event)
+                        } else {
+                            database.updateEvent(event)
+                            event.id
+                        }
+                        database.replaceRecurrenceExceptions(eventId, parsed.excludedStarts)
                         pulled++
                     }
                     database.updateCalendarCTag(calendar.id, cTag)

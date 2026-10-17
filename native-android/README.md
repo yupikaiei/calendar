@@ -8,9 +8,11 @@ A native Kotlin/Jetpack Compose implementation of Frelsi Cal. It preserves the F
 - **Month view** with per-calendar color dots and a day agenda underneath.
 - **Event editor**: title, calendar, all-day toggle, start/end date and time, preset recurrence (daily/weekly/monthly/yearly) with an optional end date, reminders, location, description, and deletion.
 - **Recurrence expansion** driven by [lib-recur](https://github.com/dmfs/lib-recur), covering `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, and other RFC 5545 parts. Local wall-clock times and all-day dates are preserved across DST changes.
+- **Per-occurrence edits and deletes**: edit or remove one instance without touching the series. Exclusions are stored as `EXDATE` and round-trip through CalDAV.
+- **Unbounded navigation**: the agenda loads earlier/more event days on demand, and month navigation extends the expansion window automatically instead of stopping at a fixed cutoff.
 - **Offline-first SQLite storage** mirroring the Flutter schema (`events`, `calendars`, `reminders`, `deleted_events`).
 - **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, event upload, tombstone propagation, and ctag-based downloads.
-- **Reminders** scheduled through `AlarmManager` with exact-alarm support and rescheduling after reboot/app updates. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires.
+- **Reminders** scheduled through `AlarmManager`, with `USE_EXACT_ALARM` on Android 13+ and a direct grant shortcut on Android 12. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires; reminders are rescheduled after reboot/app updates.
 - **Multiple calendars** with create, rename, recolor, and delete.
 - **ICS import** from the system file picker.
 - **Secondary timezone** display in event cards.
@@ -77,7 +79,8 @@ Self-hosted servers often use plain HTTP. The manifest enables cleartext traffic
 |---|---|
 | `INTERNET` | CalDAV sync |
 | `POST_NOTIFICATIONS` | Event reminders (Android 13+) |
-| `SCHEDULE_EXACT_ALARM` | On-time reminders (falls back to inexact alarms if denied) |
+| `SCHEDULE_EXACT_ALARM` | On-time reminders on Android 12 and user-granted access |
+| `USE_EXACT_ALARM` | Exact reminders without a prompt for qualifying calendar apps on Android 13+ |
 | `RECEIVE_BOOT_COMPLETED` | Re-register alarms after reboot |
 
 ## Notable differences from the Flutter app
@@ -87,3 +90,5 @@ Self-hosted servers often use plain HTTP. The manifest enables cleartext traffic
 - Events without a calendar are uploaded to a single default calendar instead of every calendar.
 - Deleting a calendar cancels its pending reminder alarms.
 - Custom RRULEs (for example `FREQ=WEEKLY;BYDAY=MO`) are shown as "Custom" in the editor instead of crashing the repeat selector.
+- Single-occurrence edits create a standalone event and add an `EXDATE` to the series; deleting the standalone later does not resurrect the original occurrence.
+- If the base recurrence rule changes, stale occurrence exclusions are discarded.

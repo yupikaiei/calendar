@@ -191,4 +191,85 @@ class IcsParserTest {
         assertTrue(event.uid.isNotBlank())
         assertEquals(LocalDate.of(2026, 1, 2).atStartOfDay(utc).toInstant().toEpochMilli(), event.end)
     }
+
+    @Test
+    fun parsesExcludedDates() {
+        val ics = """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:exdate-timed
+            SUMMARY:Series
+            DTSTART:20260101T100000Z
+            DTEND:20260101T110000Z
+            RRULE:FREQ=DAILY;COUNT=3
+            EXDATE:20260102T100000Z
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        val event = IcsParser.parseEvent(ics, utc)!!
+
+        assertEquals(
+            setOf(Instant.parse("2026-01-02T10:00:00Z").toEpochMilli()),
+            event.excludedStarts,
+        )
+    }
+
+    @Test
+    fun parsesAllDayExcludedDates() {
+        val ics = """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:exdate-all-day
+            SUMMARY:All day series
+            DTSTART;VALUE=DATE:20260101
+            DTEND;VALUE=DATE:20260102
+            RRULE:FREQ=DAILY;COUNT=3
+            EXDATE;VALUE=DATE:20260102
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        val event = IcsParser.parseEvent(ics, utc)!!
+
+        assertTrue(event.allDay)
+        assertEquals(
+            setOf(LocalDate.of(2026, 1, 2).atStartOfDay(utc).toInstant().toEpochMilli()),
+            event.excludedStarts,
+        )
+    }
+
+    @Test
+    fun generatesExcludedDates() {
+        val excluded = Instant.parse("2026-01-02T10:00:00Z").toEpochMilli()
+        val timed = Event(
+            uid = "exdate-generate",
+            title = "Series",
+            start = Instant.parse("2026-01-01T10:00:00Z").toEpochMilli(),
+            end = Instant.parse("2026-01-01T11:00:00Z").toEpochMilli(),
+            recurrenceRule = "FREQ=DAILY;COUNT=3",
+            excludedStarts = setOf(excluded),
+        )
+
+        val ics = IcsParser.generateIcs(timed, utc)
+
+        assertTrue(ics.contains("EXDATE:20260102T100000Z"))
+        assertEquals(setOf(excluded), IcsParser.parseEvent(ics, utc)!!.excludedStarts)
+
+        val allDayExcluded = LocalDate.of(2026, 2, 2)
+            .atStartOfDay(utc).toInstant().toEpochMilli()
+        val allDay = Event(
+            uid = "exdate-all-day-generate",
+            title = "All day series",
+            start = LocalDate.of(2026, 2, 1).atStartOfDay(utc).toInstant().toEpochMilli(),
+            end = LocalDate.of(2026, 2, 2).atStartOfDay(utc).toInstant().toEpochMilli(),
+            recurrenceRule = "FREQ=DAILY",
+            allDay = true,
+            excludedStarts = setOf(allDayExcluded),
+        )
+
+        val allDayIcs = IcsParser.generateIcs(allDay, utc)
+        assertTrue(allDayIcs.contains("EXDATE;VALUE=DATE:20260202"))
+        assertEquals(setOf(allDayExcluded), IcsParser.parseEvent(allDayIcs, utc)!!.excludedStarts)
+    }
 }

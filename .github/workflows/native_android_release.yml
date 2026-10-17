@@ -38,7 +38,7 @@ jobs:
 
       - name: Prepare artifacts
         run: |
-          APK="frelsi-cal-native-${GITHUB_REF_NAME}.apk"
+          APK="frelsi-cal-native-${GITHUB_REF_NAME#native-}.apk"
           cp native-android/app/build/outputs/apk/release/app-release.apk "$APK"
           sha256sum "$APK" > "$APK.sha256"
 
@@ -46,12 +46,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          APK="frelsi-cal-native-${GITHUB_REF_NAME}.apk"
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APK" "$APK.sha256" --clobber
+          TAG="$GITHUB_REF_NAME"
+          APK="frelsi-cal-native-${TAG#native-}.apk"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete-asset "$TAG" "frelsi-cal-native-${TAG}.apk" --yes || true
+            gh release delete-asset "$TAG" "frelsi-cal-native-${TAG}.apk.sha256" --yes || true
+            gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
+            gh release edit "$TAG" \
+              --title "Frelsi Cal Native ${TAG#native-}" \
+              --notes-file native-android/RELEASE_NOTES.md \
+              --prerelease
           else
-            gh release create "$GITHUB_REF_NAME" "$APK" "$APK.sha256" \
-              --title "Frelsi Cal Native ${GITHUB_REF_NAME#native-}" \
+            gh release create "$TAG" "$APK" "$APK.sha256" \
+              --title "Frelsi Cal Native ${TAG#native-}" \
               --notes-file native-android/RELEASE_NOTES.md \
               --prerelease
           fi

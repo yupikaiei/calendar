@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Frelsi Cal</string>
+    <string name="notification_channel_reminders">Event Reminders</string>
+    <string name="notification_channel_reminders_description">Notifications for upcoming calendar events</string>
+    <string name="reminder_default_body">Upcoming calendar event</string>
+</resources>

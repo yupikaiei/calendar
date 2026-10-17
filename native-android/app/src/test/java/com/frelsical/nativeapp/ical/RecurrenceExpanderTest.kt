@@ -1,0 +1,149 @@
+package com.frelsical.nativeapp.ical
+
+import com.frelsical.nativeapp.data.Event
+import com.frelsical.nativeapp.data.EventWithCalendar
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+class RecurrenceExpanderTest {
+
+    private val utc = ZoneId.of("UTC")
+
+    @Test
+    fun expandsDailyOccurrencesWithCount() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = "FREQ=DAILY;COUNT=3",
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2025-12-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-02-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        val dates = result.keys.filter { it.year == 2026 && it.monthValue == 1 }.sorted()
+        assertEquals(listOf(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 2), LocalDate.of(2026, 1, 3)), dates)
+        for (date in dates) {
+            val occurrence = result.getValue(date).single { it.event.uid == event.uid }
+            assertEquals(10, Instant.ofEpochMilli(occurrence.start).atZone(utc).hour)
+            assertEquals(11, Instant.ofEpochMilli(occurrence.end).atZone(utc).hour)
+        }
+    }
+
+    @Test
+    fun honoursUntil() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = "FREQ=DAILY;UNTIL=20260103T235959Z",
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2025-12-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-02-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        val dates = result.keys.filter { it.year == 2026 && it.monthValue == 1 }.sorted()
+        assertEquals(3, dates.size)
+        assertEquals(LocalDate.of(2026, 1, 3), dates.last())
+    }
+
+    @Test
+    fun expandsAllDayOccurrences() {
+        val start = LocalDate.of(2026, 3, 1).atStartOfDay(utc).toInstant().toEpochMilli()
+        val end = LocalDate.of(2026, 3, 2).atStartOfDay(utc).toInstant().toEpochMilli()
+        val event = Event(
+            uid = "all-day",
+            title = "All day",
+            start = start,
+            end = end,
+            recurrenceRule = "FREQ=DAILY;COUNT=2",
+            allDay = true,
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2026-02-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-04-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        val occurrence = result.getValue(LocalDate.of(2026, 3, 2)).single { it.event.uid == "all-day" }
+        assertTrue(occurrence.isRecurringInstance)
+        assertEquals(
+            LocalDate.of(2026, 3, 3).atStartOfDay(utc).toInstant().toEpochMilli(),
+            occurrence.end,
+        )
+    }
+
+    @Test
+    fun limitsExpansionToTheWindow() {
+        val event = timedEvent(
+            start = "2020-01-01T10:00:00Z",
+            end = "2020-01-01T11:00:00Z",
+            rule = "FREQ=DAILY",
+        )
+
+        val windowStart = Instant.parse("2026-01-01T00:00:00Z")
+        val windowEnd = Instant.parse("2026-01-05T00:00:00Z")
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = windowStart,
+            windowEnd = windowEnd,
+            zone = utc,
+        )
+
+        val occurrences = result.flatMap { it.value }
+            .filter { it.event.uid == event.uid && it.isRecurringInstance }
+        assertTrue(occurrences.isNotEmpty())
+        assertTrue(occurrences.all { it.start >= windowStart.toEpochMilli() })
+        assertTrue(occurrences.all { it.start <= windowEnd.toEpochMilli() })
+    }
+
+    @Test
+    fun includesTodayEvenWithoutEvents() {
+        val result = RecurrenceExpander.expand(
+            events = emptyList(),
+            windowStart = Instant.now().minusSeconds(86_400),
+            windowEnd = Instant.now().plusSeconds(86_400),
+            zone = utc,
+        )
+
+        assertTrue(result.containsKey(LocalDate.now(utc)))
+    }
+
+    @Test
+    fun keepsBaseEventOnce() {
+        val event = timedEvent(
+            start = "2026-01-01T10:00:00Z",
+            end = "2026-01-01T11:00:00Z",
+            rule = null,
+        )
+
+        val result = RecurrenceExpander.expand(
+            events = listOf(EventWithCalendar(event, null)),
+            windowStart = Instant.parse("2025-12-01T00:00:00Z"),
+            windowEnd = Instant.parse("2026-02-01T00:00:00Z"),
+            zone = utc,
+        )
+
+        assertEquals(1, result.getValue(LocalDate.of(2026, 1, 1)).size)
+    }
+
+    private fun timedEvent(start: String, end: String, rule: String?) = Event(
+        uid = "event-$start",
+        title = "Event",
+        start = Instant.parse(start).toEpochMilli(),
+        end = Instant.parse(end).toEpochMilli(),
+        recurrenceRule = rule,
+    )
+}

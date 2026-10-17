@@ -1,16 +1,26 @@
 # frelsi_cal
 
-An elegant, offline-first Flutter calendar application with CalDAV synchronization and AI-powered Natural Language Processing (NLP) event creation.
+An elegant, offline-first calendar application with CalDAV synchronization and advanced recurrence support. The repository ships both the original Flutter app and a native Android app.
 
 ## ✨ Features
 
-- **Offline-First Storage:** Powered by [Drift](https://drift.simonbinder.eu/) (SQLite) for ultra-fast, local interactions.
+- **Offline-First Storage:** Powered by SQLite for ultra-fast, local interactions (Drift in the Flutter app, `SQLiteOpenHelper` in the native app).
 - **CalDAV Synchronization:** Securely syncs events with personal CalDAV servers (e.g., Radicale, Nextcloud) to keep your calendars up-to-date across devices.
-- **Natural Language Parsing:** Uses an LLM backend (configurable via **Settings → AI Server Settings**) to parse sentences like *"Lunch with Sarah tomorrow at 1pm"* into structured calendar events. The model runs remotely on a private OpenAI‑compatible server.
-
-- **Advanced Recurrence (RRULE):** Fully supports complex repeating events and instances generation mapped cleanly onto your timeline.
+- **Advanced Recurrence (RRULE):** Fully supports complex repeating events and instance generation mapped cleanly onto your timeline.
+- **Local Reminders:** Schedules notifications for upcoming events, with exact-alarm support on Android.
 - **Beautiful Glassmorphic UI:** Modern, deeply atmospheric aesthetics with intuitive scrolling, fading past events, and smart contextual icons.
-- **Timezone Aware:** Gracefully handles primary and secondary timezones for global event cordination.
+- **Timezone Aware:** Gracefully handles primary and secondary timezones for global event coordination.
+
+## 📱 Native Android app
+
+A native Kotlin/Jetpack Compose implementation lives in [`native-android/`](native-android/README.md). It mirrors the Flutter feature set — agenda and month views, event editing with recurrence, reminders, CalDAV sync, multiple calendars, ICS import, and a secondary timezone — without a Flutter runtime.
+
+```bash
+cd native-android
+./gradlew assembleDebug
+```
+
+See [`native-android/README.md`](native-android/README.md) for requirements, architecture, and testing details.
 
 ## 🚀 Getting Started
 

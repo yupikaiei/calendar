@@ -42,6 +42,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
   bool _isAllDay = false;
 
   String? _recurrenceRule;
+  DateTime? _recurrenceEndDate;
   List<int> _reminders = []; // minutes before
 
   int? _selectedCalendarId;
@@ -73,6 +74,13 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
         _startDate.add(const Duration(hours: 1));
     _endTime = TimeOfDay.fromDateTime(_endDate);
     _recurrenceRule = widget.event?.recurrenceRule;
+    // Parse UNTIL from existing RRULE and strip it so dropdown matches presets.
+    if (_recurrenceRule != null && _recurrenceRule!.contains('UNTIL=')) {
+      _recurrenceEndDate = _parseRecurrenceEndDate(_recurrenceRule!);
+      _recurrenceRule = _recurrenceRule!
+          .replaceAll(_untilPartRegex, '')
+          .replaceAll(RegExp(r';$'), '');
+    }
     _selectedCalendarId = widget.event?.calendarId;
 
     // Detect all-day: start at midnight, end at midnight, spanning >= 1 day
@@ -140,6 +148,66 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
+  static final RegExp _untilPartRegex = RegExp(r';?UNTIL=\d{8}(T\d{6}Z?)?;?');
+
+  DateTime? _parseRecurrenceEndDate(String rule) {
+    final match = RegExp(r'UNTIL=(\d{8}(T\d{6}Z?)?)').firstMatch(rule);
+    if (match == null) return null;
+
+    final untilStr = match.group(1)!;
+    if (untilStr.length == 8) {
+      final year = int.tryParse(untilStr.substring(0, 4));
+      final month = int.tryParse(untilStr.substring(4, 6));
+      final day = int.tryParse(untilStr.substring(6, 8));
+      if (year == null || month == null || day == null) return null;
+      return DateTime(year, month, day);
+    }
+
+    final hasZulu = untilStr.endsWith('Z');
+    final core = hasZulu ? untilStr.substring(0, untilStr.length - 1) : untilStr;
+    if (core.length != 15) return null;
+
+    final iso =
+        '${core.substring(0, 4)}-${core.substring(4, 6)}-${core.substring(6, 8)}T${core.substring(9, 11)}:${core.substring(11, 13)}:${core.substring(13, 15)}${hasZulu ? 'Z' : ''}';
+    final parsed = DateTime.tryParse(iso);
+    if (parsed == null) return null;
+
+    final local = hasZulu ? parsed.toLocal() : parsed;
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  String? _buildRecurrenceRuleToSave() {
+    if (_recurrenceRule == null) return null;
+
+    final baseRule = _recurrenceRule!
+        .replaceAll(_untilPartRegex, '')
+        .replaceAll(RegExp(r';$'), '');
+
+    if (_recurrenceEndDate == null) return baseRule;
+
+    // UNTIL should represent local end-of-day converted to UTC.
+    final localEndOfDay = DateTime(
+      _recurrenceEndDate!.year,
+      _recurrenceEndDate!.month,
+      _recurrenceEndDate!.day,
+      23,
+      59,
+      59,
+    );
+    final untilUtc = localEndOfDay.toUtc();
+    final until =
+        '${untilUtc.year.toString().padLeft(4, '0')}'
+        '${untilUtc.month.toString().padLeft(2, '0')}'
+        '${untilUtc.day.toString().padLeft(2, '0')}'
+        'T'
+        '${untilUtc.hour.toString().padLeft(2, '0')}'
+        '${untilUtc.minute.toString().padLeft(2, '0')}'
+        '${untilUtc.second.toString().padLeft(2, '0')}'
+        'Z';
+
+    return '$baseRule;UNTIL=$until';
+  }
+
   void _saveEvent() async {
     if (_formKey.currentState!.validate()) {
       final db = ref.read(databaseProvider);
@@ -168,7 +236,7 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
         location: Value(
           _locationController.text.isNotEmpty ? _locationController.text : null,
         ),
-        recurrenceRule: Value(_recurrenceRule),
+        recurrenceRule: Value(_buildRecurrenceRuleToSave()),
         calendarId: Value(_selectedCalendarId),
       );
 
@@ -529,9 +597,52 @@ class _EventEditScreenState extends ConsumerState<EventEditScreen> {
                       onChanged: (val) {
                         setState(() {
                           _recurrenceRule = val;
+                          if (val == null) {
+                            _recurrenceEndDate = null;
+                          }
                         });
                       },
                     ),
+                    if (_recurrenceRule != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.event_busy, color: Colors.grey),
+                            const SizedBox(width: 12),
+                            const Text('Ends'),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () async {
+                                  final date = await showDatePicker(
+                                    context: context,
+                                    initialDate: _recurrenceEndDate ?? _startDate,
+                                    firstDate: _startDate,
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (date != null) {
+                                    setState(() => _recurrenceEndDate = date);
+                                  }
+                                },
+                                child: Text(
+                                  _recurrenceEndDate != null
+                                      ? '${_recurrenceEndDate!.year}-${_recurrenceEndDate!.month.toString().padLeft(2, '0')}-${_recurrenceEndDate!.day.toString().padLeft(2, '0')}'
+                                      : 'Never',
+                                ),
+                              ),
+                            ),
+                            if (_recurrenceEndDate != null)
+                              IconButton(
+                                icon: const Icon(Icons.clear),
+                                tooltip: 'Remove end date',
+                                onPressed: () {
+                                  setState(() => _recurrenceEndDate = null);
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     const Text(
                       'Reminders',

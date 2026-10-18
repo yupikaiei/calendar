@@ -10,6 +10,7 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlin.math.abs
 
 data class ParsedEvent(
     val uid: String,
@@ -92,6 +93,55 @@ object IcsParser {
         icsData: String,
         zone: ZoneId = ZoneId.systemDefault(),
     ): ParsedEvent? = parseEvents(icsData, zone).firstOrNull()
+
+    /**
+     * Birthday and anniversary calendars often encode all-day events as midnight
+     * in their local timezone, exported as UTC timestamps (for example 23:00Z in
+     * winter and 22:00Z in summer for Central European midnight). Import those
+     * whole-day events as all-day so they do not shift to the previous day.
+     */
+    fun normalizeAllDayImport(
+        event: ParsedEvent,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): ParsedEvent {
+        if (event.allDay) return event
+
+        val dayMillis = 86_400_000L
+        val hourMillis = 3_600_000L
+        val duration = event.end - event.start
+        if (duration < dayMillis - hourMillis) return event
+
+        val days = ((duration + dayMillis / 2) / dayMillis).toInt()
+        if (days < 1 || abs(duration - days * dayMillis) > hourMillis) return event
+
+        val startDate = midnightLikeDate(event.start, zone) ?: return event
+        val exclusions = event.excludedStarts.map { exclusion ->
+            midnightLikeDate(exclusion, zone) ?: return event
+        }.map { date ->
+            date.atStartOfDay(zone).toInstant().toEpochMilli()
+        }.toSet()
+
+        return event.copy(
+            start = startDate.atStartOfDay(zone).toInstant().toEpochMilli(),
+            end = startDate.plusDays(days.toLong()).atStartOfDay(zone).toInstant().toEpochMilli(),
+            allDay = true,
+            excludedStarts = exclusions,
+        )
+    }
+
+    private fun midnightLikeDate(millis: Long, zone: ZoneId): LocalDate? {
+        val local = Instant.ofEpochMilli(millis).atZone(zone)
+        if (local.hour == 0 && local.minute == 0 && local.second == 0) {
+            return local.toLocalDate()
+        }
+
+        val utc = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC)
+        return when (utc.hour) {
+            21, 22, 23 -> utc.toLocalDate().plusDays(1)
+            0, 1, 2, 3, 4 -> utc.toLocalDate()
+            else -> null
+        }
+    }
 
     fun generateIcs(event: Event, zone: ZoneId = ZoneId.systemDefault()): String {
         val allDayStart = Instant.ofEpochMilli(event.start).atZone(zone).toLocalDate()

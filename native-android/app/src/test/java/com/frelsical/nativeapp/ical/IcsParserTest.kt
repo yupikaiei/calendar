@@ -272,4 +272,118 @@ class IcsParserTest {
         assertTrue(allDayIcs.contains("EXDATE;VALUE=DATE:20260202"))
         assertEquals(setOf(allDayExcluded), IcsParser.parseEvent(allDayIcs, utc)!!.excludedStarts)
     }
+
+    @Test
+    fun normalizesCentralEuropeanMidnightBirthdayToAllDay() {
+        val zone = ZoneId.of("Europe/Berlin")
+        val event = birthdayEvent(
+            start = "2023-05-14T22:00:00Z",
+            end = "2023-05-15T22:00:00Z",
+            rule = "FREQ=YEARLY",
+        )
+
+        val normalized = IcsParser.normalizeAllDayImport(event, zone)
+
+        assertTrue(normalized.allDay)
+        assertEquals(LocalDate.of(2023, 5, 15), localDate(normalized.start, zone))
+        assertEquals(LocalDate.of(2023, 5, 16), localDate(normalized.end, zone))
+        assertEquals(LocalDate.of(2023, 5, 15).atStartOfDay(zone).toInstant().toEpochMilli(), normalized.start)
+    }
+
+    @Test
+    fun normalizesWinterMidnightForWesternDevice() {
+        val zone = ZoneId.of("America/Sao_Paulo")
+        val event = birthdayEvent(
+            start = "2008-02-19T23:00:00Z",
+            end = "2008-02-20T23:00:00Z",
+        )
+
+        val normalized = IcsParser.normalizeAllDayImport(event, zone)
+
+        assertTrue(normalized.allDay)
+        assertEquals(LocalDate.of(2008, 2, 20), localDate(normalized.start, zone))
+        assertEquals(LocalDate.of(2008, 2, 21), localDate(normalized.end, zone))
+    }
+
+    @Test
+    fun keepsWholeDayEventSpanningTwoDays() {
+        val event = birthdayEvent(
+            start = "2023-05-14T22:00:00Z",
+            end = "2023-05-16T22:00:00Z",
+        )
+
+        val normalized = IcsParser.normalizeAllDayImport(event, utc)
+
+        assertTrue(normalized.allDay)
+        assertEquals(2 * 86_400_000L, normalized.end - normalized.start)
+    }
+
+    @Test
+    fun normalizesExcludedBirthdayDates() {
+        val excluded = Instant.parse("2024-05-14T22:00:00Z").toEpochMilli()
+        val event = birthdayEvent(
+            start = "2023-05-14T22:00:00Z",
+            end = "2023-05-15T22:00:00Z",
+            rule = "FREQ=YEARLY",
+            excluded = setOf(excluded),
+        )
+
+        val normalized = IcsParser.normalizeAllDayImport(event, utc)
+
+        assertEquals(
+            setOf(Instant.parse("2024-05-15T00:00:00Z").toEpochMilli()),
+            normalized.excludedStarts,
+        )
+    }
+
+    @Test
+    fun leavesAfternoonAndShortEventsTimed() {
+        val afternoon = birthdayEvent(
+            start = "2024-01-01T15:00:00Z",
+            end = "2024-01-02T15:00:00Z",
+        )
+        val short = birthdayEvent(
+            start = "2024-01-01T22:00:00Z",
+            end = "2024-01-01T23:00:00Z",
+        )
+
+        assertFalse(IcsParser.normalizeAllDayImport(afternoon, utc).allDay)
+        assertFalse(IcsParser.normalizeAllDayImport(short, utc).allDay)
+    }
+
+    @Test
+    fun leavesExistingAllDayEventUntouched() {
+        val event = ParsedEvent(
+            uid = "all-day",
+            title = "All day",
+            start = LocalDate.of(2026, 1, 1).atStartOfDay(utc).toInstant().toEpochMilli(),
+            end = LocalDate.of(2026, 1, 2).atStartOfDay(utc).toInstant().toEpochMilli(),
+            allDay = true,
+            description = null,
+            location = null,
+            recurrenceRule = null,
+        )
+
+        assertEquals(event, IcsParser.normalizeAllDayImport(event, utc))
+    }
+
+    private fun birthdayEvent(
+        start: String,
+        end: String,
+        rule: String? = null,
+        excluded: Set<Long> = emptySet(),
+    ) = ParsedEvent(
+        uid = "birthday",
+        title = "Birthday",
+        start = Instant.parse(start).toEpochMilli(),
+        end = Instant.parse(end).toEpochMilli(),
+        allDay = false,
+        description = null,
+        location = null,
+        recurrenceRule = rule,
+        excludedStarts = excluded,
+    )
+
+    private fun localDate(millis: Long, zone: ZoneId): LocalDate =
+        Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
 }

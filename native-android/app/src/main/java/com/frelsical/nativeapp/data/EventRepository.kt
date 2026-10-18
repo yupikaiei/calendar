@@ -97,17 +97,20 @@ class EventRepository(
             )
 
             for (item in parsed) {
+                // Birthday exports often store all-day events as midnight UTC.
+                val normalized = IcsParser.normalizeAllDayImport(item)
                 database.insertEvent(
                     Event(
-                        uid = item.uid.ifBlank { UUID.randomUUID().toString() },
-                        title = item.title,
-                        start = item.start,
-                        end = item.end,
-                        description = item.description,
-                        location = item.location,
-                        recurrenceRule = item.recurrenceRule,
+                        uid = normalized.uid.ifBlank { UUID.randomUUID().toString() },
+                        title = normalized.title,
+                        start = normalized.start,
+                        end = normalized.end,
+                        description = normalized.description,
+                        location = normalized.location,
+                        recurrenceRule = normalized.recurrenceRule,
                         calendarId = calendarId,
-                        allDay = item.allDay,
+                        allDay = normalized.allDay,
+                        excludedStarts = normalized.excludedStarts,
                     ),
                 )
             }

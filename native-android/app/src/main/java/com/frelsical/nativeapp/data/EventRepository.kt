@@ -37,12 +37,13 @@ class EventRepository(
     suspend fun saveEvent(event: Event, reminderMinutes: List<Int>): Event =
         withContext(Dispatchers.IO) {
             val previous = event.id.takeIf { it != 0L }?.let(database::getEvent)
+            val dirtyEvent = event.copy(dirty = true)
             val saved = if (event.id == 0L) {
-                val id = database.insertEvent(event)
-                event.copy(id = id)
+                val id = database.insertEvent(dirtyEvent)
+                dirtyEvent.copy(id = id)
             } else {
-                database.updateEvent(event)
-                event
+                database.updateEvent(dirtyEvent)
+                dirtyEvent
             }
             val preserveExceptions = previous != null &&
                 baseRule(previous.recurrenceRule) == baseRule(saved.recurrenceRule)
@@ -62,6 +63,7 @@ class EventRepository(
     suspend fun addRecurrenceException(eventId: Long, occurrenceStart: Long) =
         withContext(Dispatchers.IO) {
             database.addRecurrenceException(eventId, occurrenceStart)
+            database.markEventDirty(eventId)
             reload()
         }
 

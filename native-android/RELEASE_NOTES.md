@@ -1,14 +1,21 @@
-# Frelsi Cal Native — v1.0.1
+# Frelsi Cal Native — v1.0.2
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
-## Sync reliability fixes
+## Sync no longer spins forever
 
-- **Actionable CalDAV errors**: authentication (401), permission (403), not-found (404), server errors, DNS failures, timeouts and TLS certificate problems now show a specific message instead of silently reporting a successful or empty sync.
-- **Test Connection** in **Settings → CalDAV Server Settings** verifies the URL, credentials and calendar discovery before saving.
-- **Smarter server URLs**: the app strips an accidentally included principal or calendar path (for example `http://host:5232/test/work/`) and keeps reverse-proxy prefixes such as `/radicale/` when the server returns paths without them.
-- **No false "Sync complete"**: failed calendar discovery, uploads and downloads now fail the sync with the server's reason.
-- Servers without a `getctag` property are pulled every sync instead of being skipped.
+- **Every CalDAV request is time-bounded** (30 s per call, including DNS and TLS) and is cancelled when the sync is cancelled.
+- **A 5-minute sync cap** stops the spinner and shows `Sync timed out. Check that the server is reachable and try again.` Remaining changes are uploaded on the next sync.
+- **Sync progress** is shown under the app bar (`Finding calendars…`, `Uploading 3 event(s)…`, `Downloading events…`).
+- **Only changed events are uploaded.** A new `dirty` flag marks locally created/edited events; unchanged events are no longer re-uploaded on every sync. The first sync after upgrading uploads existing events once.
+- **Auto-sync on app resume is debounced** to once per minute and no longer starts a new long sync every time the app returns to the foreground.
+
+## Previous v1.0.1 fixes
+
+- Actionable 401/403/404/5xx, DNS, timeout and TLS errors instead of false “Sync complete” messages.
+- **Test Connection** in Settings.
+- Smarter server URLs: trims principal/calendar paths and keeps reverse-proxy prefixes such as `/radicale/`.
+- Calendars without `getctag` are pulled instead of skipped.
 
 ## Highlights
 
@@ -22,7 +29,7 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.1.apk` below.
+1. Download `frelsi-cal-native-v1.0.2.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 
@@ -44,7 +51,8 @@ Troubleshooting:
 - **Cannot connect**: make sure Radicale listens on all interfaces (`hosts = 0.0.0.0:5232` in `config`), not only `localhost`. Open the same URL in the phone's browser to confirm it is reachable.
 - **Authentication failed**: verify the username/password and Radicale's htpasswd file.
 - **TLS certificate error**: install the self-signed CA on the phone or use a certificate the phone trusts.
-- **Not found (404)**: use the server base URL, not the Radicale web UI or a calendar URL. The app now trims a principal path automatically.
+- **Not found (404)**: use the server base URL, not the Radicale web UI or a calendar URL.
+- **Sync timed out**: the server accepted the connection but did not answer within 30 seconds. Check the URL, proxy and firewall.
 
 ## Notes
 

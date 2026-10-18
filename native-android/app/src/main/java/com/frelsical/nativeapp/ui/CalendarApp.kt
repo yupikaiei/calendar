@@ -7,8 +7,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -21,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,6 +67,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
     val secondaryTimezone by viewModel.secondaryTimezone.collectAsStateWithLifecycle()
     val syncing by viewModel.syncing.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var viewMode by rememberSaveable { mutableStateOf(ViewMode.Agenda) }
@@ -84,7 +90,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) viewModel.sync(showMessage = false)
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.autoSync()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -144,56 +150,68 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = if (viewMode == ViewMode.Agenda) "Agenda" else "Month",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                    ),
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                viewMode = if (viewMode == ViewMode.Agenda) {
-                                    ViewMode.Month
-                                } else {
-                                    ViewMode.Agenda
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (viewMode == ViewMode.Agenda) {
-                                    Icons.Filled.DateRange
-                                } else {
-                                    Icons.AutoMirrored.Filled.List
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = if (viewMode == ViewMode.Agenda) "Agenda" else "Month",
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                        ),
+                        actions = {
+                            IconButton(
+                                onClick = {
+                                    viewMode = if (viewMode == ViewMode.Agenda) {
+                                        ViewMode.Month
+                                    } else {
+                                        ViewMode.Agenda
+                                    }
                                 },
-                                contentDescription = "Toggle view",
-                            )
-                        }
-                        if (viewMode == ViewMode.Agenda) {
-                            TextButton(onClick = {
-                                selectedDay = LocalDate.now()
-                                scrollToTodaySignal++
-                            }) {
-                                Text("Today")
+                            ) {
+                                Icon(
+                                    imageVector = if (viewMode == ViewMode.Agenda) {
+                                        Icons.Filled.DateRange
+                                    } else {
+                                        Icons.AutoMirrored.Filled.List
+                                    },
+                                    contentDescription = "Toggle view",
+                                )
                             }
-                        }
-                        val rotation = rememberInfiniteRotation()
-                        IconButton(onClick = { viewModel.sync() }) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Sync",
-                                modifier = Modifier.rotate(if (syncing) rotation else 0f),
+                            if (viewMode == ViewMode.Agenda) {
+                                TextButton(onClick = {
+                                    selectedDay = LocalDate.now()
+                                    scrollToTodaySignal++
+                                }) {
+                                    Text("Today")
+                                }
+                            }
+                            val rotation = rememberInfiniteRotation()
+                            IconButton(onClick = { viewModel.sync() }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Sync",
+                                    modifier = Modifier.rotate(if (syncing) rotation else 0f),
+                                )
+                            }
+                            IconButton(onClick = { showSettings = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                            }
+                        },
+                    )
+                    if (syncing) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+                        syncStatus?.let { status ->
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                             )
                         }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                        }
-                    },
-                )
+                    }
+                }
             },
             floatingActionButton = {
                 FloatingActionButton(

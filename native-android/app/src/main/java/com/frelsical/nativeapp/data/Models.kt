@@ -23,6 +23,8 @@ data class Event(
     val allDay: Boolean = false,
     /** Original occurrence starts that were edited or deleted individually. */
     val excludedStarts: Set<Long> = emptySet(),
+    /** True when the local copy has changes that still need to be uploaded. */
+    val dirty: Boolean = false,
 )
 
 data class Reminder(

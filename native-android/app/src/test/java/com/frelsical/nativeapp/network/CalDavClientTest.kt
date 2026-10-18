@@ -1,8 +1,11 @@
 package com.frelsical.nativeapp.network
 
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -110,6 +113,25 @@ class CalDavClientTest {
 
             assertTrue(result.success)
             assertTrue(result.message.contains("Found 1 calendar"))
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun cancelledSyncStopsWaitingForTheServer() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val client = CalDavClient(baseUrl, "test", "secret")
+
+        try {
+            val started = System.currentTimeMillis()
+            try {
+                withTimeout(1_500) { client.getCalendars("/test/") }
+                fail("Expected cancellation")
+            } catch (_: TimeoutCancellationException) {
+                // Expected: the UI timeout cancels the in-flight OkHttp call.
+            }
+            assertTrue(System.currentTimeMillis() - started < 5_000)
         } finally {
             client.close()
         }

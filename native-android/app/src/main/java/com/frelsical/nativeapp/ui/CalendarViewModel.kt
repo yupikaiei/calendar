@@ -9,12 +9,15 @@ import com.frelsical.nativeapp.FrelsiApplication
 import com.frelsical.nativeapp.data.CalendarRecord
 import com.frelsical.nativeapp.data.Event
 import com.frelsical.nativeapp.network.CalDavClient
+import com.frelsical.nativeapp.sync.SyncReport
 import com.frelsical.nativeapp.ui.theme.calendarColorHex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.graphics.Color
 
 class CalendarViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,6 +42,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private val _syncing = MutableStateFlow(false)
     val syncing = _syncing.asStateFlow()
 
+    private val _syncStatus = MutableStateFlow<String?>(null)
+    val syncStatus = _syncStatus.asStateFlow()
+
     private val _secondaryTimezone = MutableStateFlow(settings.secondaryTimezone)
     val secondaryTimezone = _secondaryTimezone.asStateFlow()
 
@@ -50,21 +56,38 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         rescheduleReminders()
     }
 
-    fun sync(showMessage: Boolean = true) {
+    private var lastFinishedSyncAt = 0L
+
+    fun sync(showMessage: Boolean = true, force: Boolean = true) {
+        if (!force && System.currentTimeMillis() - lastFinishedSyncAt < AUTO_SYNC_DEBOUNCE_MS) return
         if (!_syncing.compareAndSet(expect = false, update = true)) return
+        _syncStatus.value = "Syncing\u2026"
         viewModelScope.launch {
             try {
-                val report = syncManager.performSync()
+                val report = withTimeoutOrNull(SYNC_TIMEOUT_MS) {
+                    syncManager.performSync { message -> _syncStatus.value = message }
+                } ?: SyncReport(
+                        success = false,
+                        message = "Sync timed out. Check that the server is reachable and try again.",
+                    )
                 repository.reload()
                 if (showMessage || (!report.success && settings.isCalDavConfigured)) {
                     _messages.tryEmit(report.message)
                 }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                _messages.tryEmit("Sync failed: ${exception.message}")
             } finally {
+                lastFinishedSyncAt = System.currentTimeMillis()
+                _syncStatus.value = null
                 _syncing.value = false
                 rescheduleReminders()
             }
         }
     }
+
+    fun autoSync() = sync(showMessage = false, force = false)
 
     fun saveEvent(event: Event, reminderMinutes: List<Int>, previousReminders: List<Int>) {
         viewModelScope.launch {
@@ -284,5 +307,10 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             _messages.tryEmit("Invalid server URL: ${exception.message}")
             null
         }
+    }
+
+    private companion object {
+        const val AUTO_SYNC_DEBOUNCE_MS = 60_000L
+        const val SYNC_TIMEOUT_MS = 300_000L
     }
 }

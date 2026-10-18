@@ -8,6 +8,7 @@ import com.frelsical.nativeapp.network.CalDavClient
 import com.frelsical.nativeapp.network.CalDavException
 import com.frelsical.nativeapp.settings.SecureStore
 import com.frelsical.nativeapp.settings.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -22,7 +23,8 @@ class SyncManager(
     private val settings: SettingsStore,
     private val secureStore: SecureStore,
 ) {
-    suspend fun performSync(): SyncReport = withContext(Dispatchers.IO) {
+    suspend fun performSync(onProgress: (String) -> Unit = {}): SyncReport = withContext(Dispatchers.IO) {
+        fun progress(message: String) = runCatching { onProgress(message) }
         if (!settings.isCalDavConfigured) {
             return@withContext SyncReport(
                 success = false,
@@ -39,9 +41,11 @@ class SyncManager(
         try {
             val username = settings.username
             val userPath = "/$username/"
+            progress("Finding calendars\u2026")
             var remoteCalendars = client.getCalendars(userPath)
 
             if (remoteCalendars.isEmpty()) {
+                progress("Creating the frelsi calendar\u2026")
                 client.createCalendar("/$username/frelsi/", "Frelsi Calendar")
                 remoteCalendars = client.getCalendars(userPath)
             }
@@ -77,12 +81,18 @@ class SyncManager(
                     }
                     .map { it.event }
 
-                for (event in localEvents) {
+                val pendingEvents = localEvents.filter { it.dirty || it.calendarId == null }
+                if (pendingEvents.isNotEmpty()) {
+                    progress("Uploading ${pendingEvents.size} event(s)\u2026")
+                }
+                for (event in pendingEvents) {
                     val ics = IcsParser.generateIcs(event)
                     if (client.putEvent(calendar.urlPath, "${event.uid}.ics", ics)) {
                         pushed++
                         if (event.calendarId == null) {
-                            database.updateEvent(event.copy(calendarId = calendar.id))
+                            database.updateEvent(event.copy(calendarId = calendar.id, dirty = false))
+                        } else {
+                            database.markEventClean(event.id)
                         }
                     }
                 }
@@ -97,6 +107,7 @@ class SyncManager(
 
                 val cTag = client.getCTag(calendar.urlPath)
                 if (cTag == null || cTag != calendar.cTag) {
+                    progress("Downloading events\u2026")
                     for (ics in client.getCalendarEvents(calendar.urlPath)) {
                         val parsed = IcsParser.parseEvent(ics) ?: continue
                         val existing = database.getEventByUid(parsed.uid)
@@ -112,6 +123,7 @@ class SyncManager(
                             calendarId = calendar.id,
                             allDay = parsed.allDay,
                             excludedStarts = parsed.excludedStarts,
+                            dirty = false,
                         )
                         val eventId = if (existing == null) {
                             database.insertEvent(event)
@@ -135,6 +147,8 @@ class SyncManager(
                     if (deletions > 0) append(" · $deletions deleted")
                 },
             )
+        } catch (exception: CancellationException) {
+            throw exception
         } catch (exception: CalDavException) {
             Log.e(TAG, "CalDAV sync failed", exception)
             SyncReport(false, exception.message ?: "Sync failed.")

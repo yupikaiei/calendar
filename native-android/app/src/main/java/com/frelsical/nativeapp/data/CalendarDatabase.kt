@@ -38,7 +38,8 @@ class CalendarDatabase(context: Context) :
                 location TEXT,
                 recurrence_rule TEXT,
                 calendar_id INTEGER REFERENCES calendars(id) ON DELETE CASCADE,
-                all_day INTEGER NOT NULL DEFAULT 0
+                all_day INTEGER NOT NULL DEFAULT 0,
+                dirty INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -72,6 +73,11 @@ class CalendarDatabase(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE events ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0")
+            // Upload existing events once after the upgrade so nothing local is lost.
+            db.execSQL("UPDATE events SET dirty = 1")
+        }
         if (oldVersion < 2) {
             db.execSQL(
                 """
@@ -91,7 +97,7 @@ class CalendarDatabase(context: Context) :
         val sql =
             """
             SELECT e.id, e.uid, e.title, e.start_date, e.end_date, e.description,
-                   e.location, e.recurrence_rule, e.calendar_id, e.all_day,
+                   e.location, e.recurrence_rule, e.calendar_id, e.all_day, e.dirty,
                    c.id AS c_id, c.url_path AS c_url_path,
                    c.display_name AS c_display_name, c.color AS c_color,
                    c.ctag AS c_ctag
@@ -162,6 +168,24 @@ class CalendarDatabase(context: Context) :
 
     fun deleteEvent(id: Long) {
         writableDatabase.delete("events", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun markEventClean(id: Long) {
+        writableDatabase.update(
+            "events",
+            ContentValues().apply { put("dirty", 0) },
+            "id = ?",
+            arrayOf(id.toString()),
+        )
+    }
+
+    fun markEventDirty(id: Long) {
+        writableDatabase.update(
+            "events",
+            ContentValues().apply { put("dirty", 1) },
+            "id = ?",
+            arrayOf(id.toString()),
+        )
     }
 
     // --- Recurrence exceptions ---
@@ -456,6 +480,7 @@ private fun Cursor.toEvent(): Event {
         recurrenceRule = getString(getColumnIndexOrThrow("recurrence_rule")),
         calendarId = getColumnIndex("calendar_id").takeIf { it >= 0 && !isNull(it) }?.let { getLong(it) },
         allDay = getInt(getColumnIndexOrThrow("all_day")) != 0,
+        dirty = getColumnIndex("dirty").takeIf { it >= 0 }?.let { getInt(it) != 0 } ?: false,
     )
 }
 
@@ -490,8 +515,9 @@ private fun Event.toValues(includeId: Boolean): ContentValues {
         put("recurrence_rule", recurrenceRule)
         put("calendar_id", calendarId)
         put("all_day", if (allDay) 1 else 0)
+        put("dirty", if (dirty) 1 else 0)
     }
 }
 
 private const val DATABASE_NAME = "frelsi_cal_native.db"
-private const val DATABASE_VERSION = 2
+private const val DATABASE_VERSION = 3

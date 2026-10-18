@@ -12,12 +12,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.xml.sax.SAXException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class RemoteCalendar(
     val urlPath: String,
@@ -46,9 +53,10 @@ class CalDavClient(
     private val authorization: String = Credentials.basic(username, password)
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -62,6 +70,7 @@ class CalDavClient(
     }
 
     fun close() {
+        client.dispatcher.cancelAll()
         client.dispatcher.executorService.shutdown()
         client.connectionPool.evictAll()
     }
@@ -242,18 +251,50 @@ class CalDavClient(
         }
     }
 
-    private fun <T> execute(
+    private suspend fun <T> execute(
         operation: String,
         requestBuilder: () -> Request,
         block: (Response) -> T,
     ): T {
+        val request = try {
+            requestBuilder()
+        } catch (exception: Exception) {
+            throw wrap(operation, exception)
+        }
+        Log.d(TAG, "$operation: ${request.method} ${request.url}")
+
+        val call = client.newCall(request)
         val response = try {
-            client.newCall(requestBuilder()).execute()
+            suspendCancellableCoroutine<Response> { continuation ->
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(
+                    object : Callback {
+                        override fun onFailure(call: Call, exception: IOException) {
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(wrap(operation, exception))
+                            }
+                        }
+
+                        override fun onResponse(call: Call, response: Response) {
+                            if (continuation.isActive) {
+                                continuation.resume(response)
+                            } else {
+                                response.close()
+                            }
+                        }
+                    },
+                )
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: CalDavException) {
+            throw exception
         } catch (exception: Exception) {
             throw wrap(operation, exception)
         }
 
         return response.use {
+            Log.d(TAG, "$operation: HTTP ${it.code}")
             try {
                 block(it)
             } catch (exception: CalDavException) {

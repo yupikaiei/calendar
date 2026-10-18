@@ -141,6 +141,9 @@ fun SettingsScreen(
                         label = { Text("Server URL") },
                         singleLine = true,
                         placeholder = { Text("https://radicale.example.com") },
+                        supportingText = {
+                            Text("Base URL only, e.g. http://192.168.1.10:5232")
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -175,6 +178,14 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Save Connections")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { viewModel.testConnection(serverUrl, username, password) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Test Connection")
                     }
                 }
 

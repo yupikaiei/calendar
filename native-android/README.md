@@ -63,7 +63,13 @@ app/src/main/java/com/frelsical/nativeapp/
 
 Settings → **CalDAV Server Settings** stores the server URL, username, and password. The password is encrypted with an Android Keystore key; the URL and username live in private `SharedPreferences`.
 
-Self-hosted servers often use plain HTTP. The manifest enables cleartext traffic for that case; use HTTPS whenever possible.
+Self-hosted servers often use plain HTTP. The manifest enables cleartext traffic for that case; use HTTPS whenever possible. Use **Test Connection** after entering the server details; it reports authentication, path, DNS, timeout and TLS problems with a specific message.
+
+### CalDAV troubleshooting
+
+- Radicale must listen on the network interface your phone can reach. Set `hosts = 0.0.0.0:5232` in Radicale's `config` and use the computer's LAN IP on the phone (for example `http://192.168.1.10:5232`), not `localhost`.
+- Enter the **base URL** only. The app trims a principal or calendar path if one is included and preserves reverse-proxy prefixes such as `/radicale/`.
+- A self-signed HTTPS certificate must be installed as a trusted CA on the phone, or use plain HTTP on a trusted LAN.
 
 ### CalDAV expectations
 

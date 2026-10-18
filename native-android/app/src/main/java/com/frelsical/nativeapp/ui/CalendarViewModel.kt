@@ -120,6 +120,28 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         sync(showMessage = false)
     }
 
+    fun testConnection(serverUrl: String, username: String, password: String) {
+        if (serverUrl.isBlank() || username.isBlank()) {
+            _messages.tryEmit("Enter the server URL and username first.")
+            return
+        }
+        viewModelScope.launch {
+            _messages.tryEmit("Testing connection\u2026")
+            val client = try {
+                CalDavClient(serverUrl, username.trim(), password)
+            } catch (exception: Exception) {
+                _messages.tryEmit("Invalid server URL: ${exception.message}")
+                return@launch
+            }
+            try {
+                val result = client.testConnection("/${username.trim()}/")
+                _messages.tryEmit(result.message)
+            } finally {
+                client.close()
+            }
+        }
+    }
+
     fun setSecondaryTimezone(timezone: String?) {
         settings.secondaryTimezone = timezone
         _secondaryTimezone.value = timezone

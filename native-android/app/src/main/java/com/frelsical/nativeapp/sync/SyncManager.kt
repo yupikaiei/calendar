@@ -5,6 +5,7 @@ import com.frelsical.nativeapp.data.CalendarDatabase
 import com.frelsical.nativeapp.data.Event
 import com.frelsical.nativeapp.ical.IcsParser
 import com.frelsical.nativeapp.network.CalDavClient
+import com.frelsical.nativeapp.network.CalDavException
 import com.frelsical.nativeapp.settings.SecureStore
 import com.frelsical.nativeapp.settings.SettingsStore
 import kotlinx.coroutines.Dispatchers
@@ -41,9 +42,8 @@ class SyncManager(
             var remoteCalendars = client.getCalendars(userPath)
 
             if (remoteCalendars.isEmpty()) {
-                if (client.createCalendar("/$username/frelsi/", "Frelsi Calendar")) {
-                    remoteCalendars = client.getCalendars(userPath)
-                }
+                client.createCalendar("/$username/frelsi/", "Frelsi Calendar")
+                remoteCalendars = client.getCalendars(userPath)
             }
 
             if (remoteCalendars.isEmpty()) {
@@ -70,8 +70,6 @@ class SyncManager(
                 // Imported calendars are local-only.
                 if (calendar.urlPath.startsWith("/local/")) continue
 
-                var cTag: String? = client.getCTag(calendar.urlPath) ?: continue
-
                 val localEvents = database.getEventsWithCalendars()
                     .filter { item ->
                         item.event.calendarId == calendar.id ||
@@ -97,8 +95,8 @@ class SyncManager(
                     }
                 }
 
-                cTag = client.getCTag(calendar.urlPath)
-                if (cTag != null && cTag != calendar.cTag) {
+                val cTag = client.getCTag(calendar.urlPath)
+                if (cTag == null || cTag != calendar.cTag) {
                     for (ics in client.getCalendarEvents(calendar.urlPath)) {
                         val parsed = IcsParser.parseEvent(ics) ?: continue
                         val existing = database.getEventByUid(parsed.uid)
@@ -124,7 +122,7 @@ class SyncManager(
                         database.replaceRecurrenceExceptions(eventId, parsed.excludedStarts)
                         pulled++
                     }
-                    database.updateCalendarCTag(calendar.id, cTag)
+                    if (cTag != null) database.updateCalendarCTag(calendar.id, cTag)
                 }
             }
 
@@ -137,6 +135,9 @@ class SyncManager(
                     if (deletions > 0) append(" · $deletions deleted")
                 },
             )
+        } catch (exception: CalDavException) {
+            Log.e(TAG, "CalDAV sync failed", exception)
+            SyncReport(false, exception.message ?: "Sync failed.")
         } catch (exception: Exception) {
             Log.e(TAG, "CalDAV sync failed", exception)
             SyncReport(false, "Sync failed: ${exception.message}")

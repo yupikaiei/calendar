@@ -110,19 +110,20 @@ class SyncManager(
                     progress("Downloading events\u2026")
                     for (ics in client.getCalendarEvents(calendar.urlPath)) {
                         val parsed = IcsParser.parseEvent(ics) ?: continue
-                        val existing = database.getEventByUid(parsed.uid)
+                        val normalized = IcsParser.normalizeAllDayImport(parsed)
+                        val existing = database.getEventByUid(normalized.uid)
                         val event = Event(
                             id = existing?.id ?: 0L,
-                            uid = parsed.uid,
-                            title = parsed.title,
-                            start = parsed.start,
-                            end = parsed.end,
-                            description = parsed.description,
-                            location = parsed.location,
-                            recurrenceRule = parsed.recurrenceRule,
+                            uid = normalized.uid,
+                            title = normalized.title,
+                            start = normalized.start,
+                            end = normalized.end,
+                            description = normalized.description,
+                            location = normalized.location,
+                            recurrenceRule = normalized.recurrenceRule,
                             calendarId = calendar.id,
-                            allDay = parsed.allDay,
-                            excludedStarts = parsed.excludedStarts,
+                            allDay = normalized.allDay,
+                            excludedStarts = normalized.excludedStarts,
                             dirty = false,
                         )
                         val eventId = if (existing == null) {
@@ -131,7 +132,7 @@ class SyncManager(
                             database.updateEvent(event)
                             event.id
                         }
-                        database.replaceRecurrenceExceptions(eventId, parsed.excludedStarts)
+                        database.replaceRecurrenceExceptions(eventId, normalized.excludedStarts)
                         pulled++
                     }
                     if (cTag != null) database.updateCalendarCTag(calendar.id, cTag)

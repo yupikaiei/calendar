@@ -3,6 +3,7 @@ package com.frelsical.nativeapp.data
 import android.content.Context
 import android.net.Uri
 import com.frelsical.nativeapp.ical.IcsParser
+import com.frelsical.nativeapp.ical.ParsedEvent
 import com.frelsical.nativeapp.ical.RecurrenceRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,6 +80,43 @@ class EventRepository(
 
     suspend fun allEventsWithReminders(): List<EventWithReminders> = withContext(Dispatchers.IO) {
         database.getEventWithReminders()
+    }
+
+    /**
+     * One-time repair for events already stored with midnight-UTC timestamps
+     * from birthday exports or a CalDAV server.
+     */
+    suspend fun normalizeStoredAllDayEvents(): Int = withContext(Dispatchers.IO) {
+        var changed = 0
+        for (item in database.getEventsWithCalendars()) {
+            val event = item.event
+            if (event.allDay) continue
+            val normalized = IcsParser.normalizeAllDayImport(
+                ParsedEvent(
+                    uid = event.uid,
+                    title = event.title,
+                    start = event.start,
+                    end = event.end,
+                    allDay = event.allDay,
+                    description = event.description,
+                    location = event.location,
+                    recurrenceRule = event.recurrenceRule,
+                    excludedStarts = event.excludedStarts,
+                ),
+            )
+            if (!normalized.allDay) continue
+            database.updateEvent(
+                event.copy(
+                    start = normalized.start,
+                    end = normalized.end,
+                    allDay = true,
+                    excludedStarts = normalized.excludedStarts,
+                ),
+            )
+            database.replaceRecurrenceExceptions(event.id, normalized.excludedStarts)
+            changed++
+        }
+        changed
     }
 
     suspend fun importIcs(uri: Uri): ImportResult = withContext(Dispatchers.IO) {

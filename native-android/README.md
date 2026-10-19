@@ -14,7 +14,7 @@ A native Kotlin/Jetpack Compose implementation of Frelsi Cal. It preserves the F
 - **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, incremental event upload, tombstone propagation, and ctag-based downloads. Each request is time-bounded so the sync indicator cannot hang indefinitely.
 - **Reminders** scheduled through `AlarmManager`, with `USE_EXACT_ALARM` on Android 13+ and a direct grant shortcut on Android 12. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires; reminders are rescheduled after reboot/app updates.
 - **Multiple calendars** with create, rename, recolor, and delete.
-- **ICS import** from the system file picker, with all-day detection for birthday calendars that encode midnight as UTC timestamps.
+- **ICS import and CalDAV sync** detect birthday calendars that encode all-day events as midnight UTC timestamps and show them as all-day. Existing events are repaired once on first launch.
 - **Secondary timezone** display in event cards.
 - **Password encryption** using an AES/GCM key stored in the Android Keystore.
 

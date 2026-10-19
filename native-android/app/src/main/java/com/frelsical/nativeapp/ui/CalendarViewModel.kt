@@ -52,8 +52,14 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     val messages = _messages.asSharedFlow()
 
     init {
-        viewModelScope.launch { repository.reload() }
-        rescheduleReminders()
+        viewModelScope.launch {
+            if (settings.allDayMigrationVersion < ALL_DAY_MIGRATION_VERSION) {
+                repository.normalizeStoredAllDayEvents()
+                settings.allDayMigrationVersion = ALL_DAY_MIGRATION_VERSION
+            }
+            repository.reload()
+            rescheduleReminders()
+        }
     }
 
     private var lastFinishedSyncAt = 0L
@@ -312,5 +318,6 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     private companion object {
         const val AUTO_SYNC_DEBOUNCE_MS = 60_000L
         const val SYNC_TIMEOUT_MS = 300_000L
+        const val ALL_DAY_MIGRATION_VERSION = 1
     }
 }

@@ -1,13 +1,14 @@
-# Frelsi Cal Native — v1.0.3
+# Frelsi Cal Native — v1.0.4
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
-## All-day birthday imports
+## All-day events from CalDAV and existing imports
 
-- ICS imports now recognize **whole-day events encoded as midnight UTC** — for example `DTSTART:20230514T220000Z` / `DTEND:20230515T220000Z` used by birthday calendars exported from Central European timezones.
-- These events are imported as **all-day**, show the **“All day”** label, and stay on the correct calendar date instead of shifting to the previous evening.
-- Only events whose UTC start is midnight-like (`21:00`–`04:00` UTC, or exactly midnight in the phone’s timezone) and whose duration is a whole number of days are converted. Normal timed events and short meetings are unchanged.
-- Existing imported birthday calendars should be deleted under **Settings → My Calendars** and imported again to apply the conversion.
+- **CalDAV sync now applies the same midnight-UTC detection as ICS import.** Birthday calendars stored on Radicale/Nextcloud with events like `DTSTART:20230514T220000Z` / `DTEND:20230515T220000Z` are shown as all-day after the next sync.
+- **Existing events are repaired once on first launch.** The app converts already-stored midnight-like whole-day events to all-day, so you do not need to delete or re-import your `Aniversários` calendar.
+- Events now show **“All day”** instead of `00:00 - 00:00` and stay on the intended calendar date.
+- Multi-day spans and EXDATEs are preserved. Afternoon and short timed events are unchanged.
+- The About section now shows the real installed version instead of a hard-coded `1.0.0`.
 
 ## Sync reliability (v1.0.2)
 
@@ -29,7 +30,7 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.3.apk` below.
+1. Download `frelsi-cal-native-v1.0.4.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 

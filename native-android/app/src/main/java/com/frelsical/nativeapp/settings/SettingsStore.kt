@@ -16,6 +16,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_USERNAME, "")?.trim().orEmpty()
         set(value) = prefs.edit { putString(KEY_USERNAME, value.trim()) }
 
+    var allDayMigrationVersion: Int
+        get() = prefs.getInt(KEY_ALL_DAY_MIGRATION_VERSION, 0)
+        set(value) = prefs.edit { putInt(KEY_ALL_DAY_MIGRATION_VERSION, value) }
+
     var secondaryTimezone: String?
         get() = prefs.getString(KEY_SECONDARY_TIMEZONE, null)?.takeIf { it.isNotBlank() }
         set(value) = prefs.edit {
@@ -31,5 +35,6 @@ class SettingsStore(context: Context) {
         const val KEY_SERVER_URL = "server_url"
         const val KEY_USERNAME = "username"
         const val KEY_SECONDARY_TIMEZONE = "secondary_timezone"
+        const val KEY_ALL_DAY_MIGRATION_VERSION = "all_day_migration_version"
     }
 }

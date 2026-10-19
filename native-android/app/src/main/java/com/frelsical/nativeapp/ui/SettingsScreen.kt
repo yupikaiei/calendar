@@ -1,5 +1,6 @@
 package com.frelsical.nativeapp.ui
 
+import com.frelsical.nativeapp.BuildConfig
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -293,7 +294,7 @@ fun SettingsScreen(
                 item { SectionTitle("About") }
                 item {
                     Text(
-                        "Frelsi Cal Native · 1.0.0",
+                        "Frelsi Cal Native · ${BuildConfig.VERSION_NAME}",
                         color = Color.White.copy(alpha = 0.7f),
                     )
                 }

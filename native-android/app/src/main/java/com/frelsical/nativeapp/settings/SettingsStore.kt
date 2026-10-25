@@ -27,6 +27,16 @@ class SettingsStore(context: Context) {
             else putString(KEY_SECONDARY_TIMEZONE, value)
         }
 
+    /** Epoch millis of the last finished sync; 0 when the app has never synced. */
+    var lastSyncFinishedAt: Long
+        get() = prefs.getLong(KEY_LAST_SYNC_FINISHED_AT, 0L)
+        set(value) = prefs.edit { putLong(KEY_LAST_SYNC_FINISHED_AT, value) }
+
+    /** True when the last finished sync failed, so automatic syncs can back off. */
+    var lastSyncFailed: Boolean
+        get() = prefs.getBoolean(KEY_LAST_SYNC_FAILED, false)
+        set(value) = prefs.edit { putBoolean(KEY_LAST_SYNC_FAILED, value) }
+
     val isCalDavConfigured: Boolean
         get() = serverUrl.isNotBlank() && username.isNotBlank()
 
@@ -36,5 +46,7 @@ class SettingsStore(context: Context) {
         const val KEY_USERNAME = "username"
         const val KEY_SECONDARY_TIMEZONE = "secondary_timezone"
         const val KEY_ALL_DAY_MIGRATION_VERSION = "all_day_migration_version"
+        const val KEY_LAST_SYNC_FINISHED_AT = "last_sync_finished_at"
+        const val KEY_LAST_SYNC_FAILED = "last_sync_failed"
     }
 }

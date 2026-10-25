@@ -22,9 +22,17 @@ class EventRepository(
     private val _calendars = MutableStateFlow<List<CalendarRecord>>(emptyList())
     val calendars: StateFlow<List<CalendarRecord>> = _calendars.asStateFlow()
 
+    /**
+     * False until the first database read completes, so the agenda can tell
+     * "no events yet" apart from "events are still loading".
+     */
+    private val _loaded = MutableStateFlow(false)
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
     suspend fun reload() = withContext(Dispatchers.IO) {
         _events.value = database.getEventsWithCalendars()
         _calendars.value = database.getCalendars()
+        _loaded.value = true
     }
 
     suspend fun getEvent(id: Long): Event? = withContext(Dispatchers.IO) {

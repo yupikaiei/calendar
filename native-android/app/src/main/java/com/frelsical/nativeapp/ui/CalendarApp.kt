@@ -64,6 +64,7 @@ private enum class ViewMode { Agenda, Month }
 @Composable
 fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     val events by viewModel.events.collectAsStateWithLifecycle()
+    val eventsLoaded by viewModel.eventsLoaded.collectAsStateWithLifecycle()
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
     val secondaryTimezone by viewModel.secondaryTimezone.collectAsStateWithLifecycle()
     val syncing by viewModel.syncing.collectAsStateWithLifecycle()
@@ -74,6 +75,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     var selectedDay by rememberSaveable { mutableStateOf(LocalDate.now()) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var scrollToTodaySignal by rememberSaveable { mutableIntStateOf(0) }
+    var todayKey by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
 
     var editorVisible by remember { mutableStateOf(false) }
     var editorEvent by remember { mutableStateOf<Event?>(null) }
@@ -90,7 +92,17 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) viewModel.autoSync()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val today = LocalDate.now()
+                if (today.toString() != todayKey) {
+                    // The app was last used on an earlier day: re-expand the
+                    // agenda around the new today and scroll back to it.
+                    todayKey = today.toString()
+                    selectedDay = today
+                    scrollToTodaySignal++
+                }
+                viewModel.autoSync()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -99,7 +111,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     val zone = remember { ZoneId.systemDefault() }
     var windowStart by rememberSaveable { mutableStateOf(LocalDate.now(zone).minusYears(2)) }
     var windowEnd by rememberSaveable { mutableStateOf(LocalDate.now(zone).plusYears(5)) }
-    val days = remember(events, zone, windowStart, windowEnd) {
+    val days = remember(events, zone, windowStart, windowEnd, todayKey) {
         RecurrenceExpander.expand(
             events = events,
             windowStart = windowStart.atStartOfDay(zone).toInstant(),
@@ -188,7 +200,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                                     Text("Today")
                                 }
                             }
-                            val rotation = rememberInfiniteRotation()
+                            val rotation = rememberInfiniteRotation(active = syncing)
                             IconButton(onClick = { viewModel.sync() }) {
                                 Icon(
                                     imageVector = Icons.Filled.Refresh,
@@ -231,6 +243,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                 when (viewMode) {
                     ViewMode.Agenda -> AgendaView(
                         dayEvents = days,
+                        eventsLoaded = eventsLoaded,
                         secondaryTimezone = secondaryTimezone,
                         scrollToTodaySignal = scrollToTodaySignal,
                         onEventClick = ::openOccurrence,
@@ -304,7 +317,8 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
 }
 
 @Composable
-private fun rememberInfiniteRotation(): Float {
+private fun rememberInfiniteRotation(active: Boolean): Float {
+    if (!active) return 0f
     val transition = rememberInfiniteTransition(label = "sync")
     val rotation by transition.animateFloat(
         initialValue = 0f,

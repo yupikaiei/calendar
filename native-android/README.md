@@ -4,14 +4,14 @@ A native Kotlin/Jetpack Compose implementation of Frelsi Cal. It preserves the F
 
 ## Features
 
-- **Agenda view** listing event days, with past events dimmed and a "Today" shortcut.
+- **Agenda view** listing event days, opening on today, with past events dimmed and a "Today" shortcut.
 - **Month view** with per-calendar color dots and a day agenda underneath.
 - **Event editor**: title, calendar, all-day toggle, start/end date and time, preset recurrence (daily/weekly/monthly/yearly) with an optional end date, reminders, location, description, and deletion.
 - **Recurrence expansion** driven by [lib-recur](https://github.com/dmfs/lib-recur), covering `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY`, and other RFC 5545 parts. Local wall-clock times and all-day dates are preserved across DST changes.
 - **Per-occurrence edits and deletes**: edit or remove one instance without touching the series. Exclusions are stored as `EXDATE` and round-trip through CalDAV.
 - **Unbounded navigation**: the agenda loads earlier/more event days on demand, and month navigation extends the expansion window automatically instead of stopping at a fixed cutoff.
 - **Offline-first SQLite storage** mirroring the Flutter schema (`events`, `calendars`, `reminders`, `deleted_events`).
-- **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, incremental event upload, tombstone propagation, and ctag-based downloads. Each request is time-bounded so the sync indicator cannot hang indefinitely.
+- **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, incremental event upload, tombstone propagation, and ctag-based downloads. Each request is time-bounded so the sync indicator cannot hang indefinitely. Automatic syncs are silent, run at most every 5 minutes (15 minutes after a failure), and are skipped while the device has no network or CalDAV is not configured.
 - **Reminders** scheduled through `AlarmManager`, with `USE_EXACT_ALARM` on Android 13+ and a direct grant shortcut on Android 12. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires; reminders are rescheduled after reboot/app updates.
 - **Multiple calendars** with create, rename, recolor, and delete.
 - **ICS import and CalDAV sync** detect birthday calendars that encode all-day events as midnight UTC timestamps and show them as all-day. Existing events are repaired once on first launch.

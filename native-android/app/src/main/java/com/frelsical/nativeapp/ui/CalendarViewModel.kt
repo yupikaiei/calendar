@@ -10,6 +10,7 @@ import com.frelsical.nativeapp.data.CalendarRecord
 import com.frelsical.nativeapp.data.Event
 import com.frelsical.nativeapp.network.CalDavClient
 import com.frelsical.nativeapp.sync.SyncReport
+import com.frelsical.nativeapp.sync.SyncSchedule
 import com.frelsical.nativeapp.ui.theme.calendarColorHex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +32,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     val events = repository.events
     val calendars = repository.calendars
+    val eventsLoaded = repository.loaded
 
     val calDavServerUrl: String get() = settings.serverUrl
     val calDavUsername: String get() = settings.username
@@ -62,30 +64,62 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private var lastFinishedSyncAt = 0L
+    private val syncInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    fun sync(showMessage: Boolean = true, force: Boolean = true) {
-        if (!force && System.currentTimeMillis() - lastFinishedSyncAt < AUTO_SYNC_DEBOUNCE_MS) return
-        if (!_syncing.compareAndSet(expect = false, update = true)) return
-        _syncStatus.value = "Syncing\u2026"
+    /**
+     * [showIndicator] is false for automatic syncs, which should not flash the
+     * progress bar every time the app comes back to the foreground.
+     */
+    fun sync(showMessage: Boolean = true, force: Boolean = true, showIndicator: Boolean = true) {
+        if (!settings.isCalDavConfigured) {
+            if (showMessage) _messages.tryEmit("Add your CalDAV server details in Settings first.")
+            return
+        }
+        if (!force && !SyncSchedule.shouldAutoSync(
+                configured = settings.isCalDavConfigured,
+                hasNetwork = hasNetwork(),
+                now = System.currentTimeMillis(),
+                lastSyncFinishedAt = settings.lastSyncFinishedAt,
+                lastSyncFailed = settings.lastSyncFailed,
+            )
+        ) {
+            return
+        }
+        if (!syncInFlight.compareAndSet(false, true)) return
+        if (showIndicator) {
+            _syncing.value = true
+            _syncStatus.value = "Syncing\u2026"
+        }
         viewModelScope.launch {
+            var succeeded = false
+            var cancelled = false
             try {
                 val report = withTimeoutOrNull(SYNC_TIMEOUT_MS) {
-                    syncManager.performSync { message -> _syncStatus.value = message }
+                    syncManager.performSync { message ->
+                        if (showIndicator) _syncStatus.value = message
+                    }
                 } ?: SyncReport(
                         success = false,
                         message = "Sync timed out. Check that the server is reachable and try again.",
                     )
+                succeeded = report.success
                 repository.reload()
-                if (showMessage || (!report.success && settings.isCalDavConfigured)) {
+                if (showMessage || !report.success) {
                     _messages.tryEmit(report.message)
                 }
             } catch (exception: CancellationException) {
+                cancelled = true
                 throw exception
             } catch (exception: Exception) {
                 _messages.tryEmit("Sync failed: ${exception.message}")
             } finally {
-                lastFinishedSyncAt = System.currentTimeMillis()
+                // A cancelled sync says nothing about the server, so it must not
+                // start the failure back-off.
+                if (!cancelled) {
+                    settings.lastSyncFinishedAt = System.currentTimeMillis()
+                    settings.lastSyncFailed = !succeeded
+                }
+                syncInFlight.set(false)
                 _syncStatus.value = null
                 _syncing.value = false
                 rescheduleReminders()
@@ -93,7 +127,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun autoSync() = sync(showMessage = false, force = false)
+    fun autoSync() = sync(showMessage = false, force = false, showIndicator = false)
 
     fun saveEvent(event: Event, reminderMinutes: List<Int>, previousReminders: List<Int>) {
         viewModelScope.launch {
@@ -184,22 +218,21 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch {
             val client = openClient() ?: return@launch
-            try {
-                val slug = name.lowercase()
-                    .replace(Regex("[^a-z0-9]+"), "-")
-                    .trim('-')
-                    .ifBlank { "calendar" }
-                val path = "/${settings.username}/$slug/"
-                if (client.createCalendar(path, name)) {
-                    _messages.tryEmit("Calendar \"$name\" created")
-                    val report = syncManager.performSync()
-                    repository.reload()
-                    if (!report.success) _messages.tryEmit(report.message)
-                } else {
-                    _messages.tryEmit("Failed to create the calendar on the server.")
-                }
+            val slug = name.lowercase()
+                .replace(Regex("[^a-z0-9]+"), "-")
+                .trim('-')
+                .ifBlank { "calendar" }
+            val path = "/${settings.username}/$slug/"
+            val created = try {
+                client.createCalendar(path, name)
             } finally {
                 client.close()
+            }
+            if (created) {
+                _messages.tryEmit("Calendar \"$name\" created")
+                sync(showMessage = false)
+            } else {
+                _messages.tryEmit("Failed to create the calendar on the server.")
             }
         }
     }
@@ -302,6 +335,12 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun remindersFor(eventId: Long): List<Int> = repository.getReminderMinutes(eventId)
 
+    private fun hasNetwork(): Boolean {
+        val manager = getApplication<Application>()
+            .getSystemService(android.net.ConnectivityManager::class.java) ?: return true
+        return manager.activeNetwork != null
+    }
+
     private fun openClient(): CalDavClient? {
         if (!settings.isCalDavConfigured) {
             _messages.tryEmit("Configure your CalDAV server first.")
@@ -316,7 +355,6 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
     }
 
     private companion object {
-        const val AUTO_SYNC_DEBOUNCE_MS = 60_000L
         const val SYNC_TIMEOUT_MS = 300_000L
         const val ALL_DAY_MIGRATION_VERSION = 1
     }

@@ -36,7 +36,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -55,6 +59,7 @@ import java.time.ZoneId
 @Composable
 fun AgendaView(
     dayEvents: Map<LocalDate, List<Occurrence>>,
+    eventsLoaded: Boolean,
     secondaryTimezone: String?,
     scrollToTodaySignal: Int,
     onEventClick: (Occurrence) -> Unit,
@@ -63,11 +68,22 @@ fun AgendaView(
 ) {
     val days = remember(dayEvents) { dayEvents.keys.sorted() }
     val today = LocalDate.now()
-    val todayIndex = days.indexOf(today).coerceAtLeast(0)
+    val todayIndex = remember(days, today) { days.indexOf(today).coerceAtLeast(0) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex + 1)
+    var settledOnToday by rememberSaveable { mutableStateOf(false) }
+
+    // The day map already contains a placeholder for today before the database
+    // read finishes, so waiting for the first load is what makes today's real
+    // position known.
+    LaunchedEffect(days, todayIndex, eventsLoaded) {
+        if (eventsLoaded && !settledOnToday && days.isNotEmpty()) {
+            listState.scrollToItem(todayIndex + 1)
+            settledOnToday = true
+        }
+    }
 
     LaunchedEffect(scrollToTodaySignal) {
-        if (scrollToTodaySignal > 0) {
+        if (scrollToTodaySignal > 0 && days.isNotEmpty()) {
             listState.animateScrollToItem(todayIndex + 1)
         }
     }

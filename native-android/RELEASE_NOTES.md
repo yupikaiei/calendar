@@ -1,6 +1,19 @@
-# Frelsi Cal Native — v1.0.4
+# Frelsi Cal Native — v1.0.5
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
+
+## Agenda opens on today
+
+- The agenda now starts on **today** instead of the earliest day with events. The view is positioned once the first database read finishes, and the app returns to today when you reopen it on a later day.
+- Your scroll position is kept while you stay in the agenda, and the **Today** shortcut still jumps back at any time.
+- The sync icon only animates while a sync is running.
+
+## Calmer syncing
+
+- Automatic syncs are now silent: opening the app no longer flashes the progress bar with every resume.
+- Automatic syncs run at most every **5 minutes**, backing off to **15 minutes** after a failure; the last attempt is remembered across app restarts, so a failing server is no longer retried on every launch.
+- Syncs are skipped while CalDAV is not configured or the device has no network. Manual sync (the refresh button) always runs and still shows its progress and result.
+- Renaming, recoloring or creating a calendar can no longer start a second sync alongside the automatic one.
 
 ## All-day events from CalDAV and existing imports
 
@@ -30,7 +43,7 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.4.apk` below.
+1. Download `frelsi-cal-native-v1.0.5.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 

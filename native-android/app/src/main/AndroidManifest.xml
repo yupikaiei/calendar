@@ -36,6 +36,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Lets other apps and launchers resolve Frelsi Cal for "open calendar" requests. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.APP_CALENDAR" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <!-- Other apps requesting a new event, following the platform calendar contract. -->
             <intent-filter>
                 <action android:name="android.intent.action.INSERT" />

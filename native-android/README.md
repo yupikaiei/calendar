@@ -81,6 +81,18 @@ Calendar files opened or shared with the app (`ACTION_VIEW` or `ACTION_SEND` wit
 
 Frelsi Cal does not implement the `CalendarContract` content provider, so apps that write to `content://com.android.calendar` directly instead of launching the insert intent are not supported.
 
+## Open-calendar requests
+
+Frelsi Cal also answers requests for the system calendar app, such as `Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)`:
+
+```kotlin
+startActivity(
+    Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR),
+)
+```
+
+When another calendar app is installed, Android shows a chooser the first time; choosing Frelsi Cal and **Always** makes it the default for these requests. Android has no global "default calendar app" setting, so apps that write directly to `CalendarContract` still target the system calendar provider.
+
 ## Configuration
 
 Settings → **CalDAV Server Settings** stores the server URL, username, and password. The password is encrypted with an Android Keystore key; the URL and username live in private `SharedPreferences`.

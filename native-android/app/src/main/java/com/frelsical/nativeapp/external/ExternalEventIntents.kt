@@ -16,6 +16,8 @@ object ExternalEventIntents {
     fun parse(intent: Intent?): ExternalEventRequest? = when (intent?.action) {
         Intent.ACTION_INSERT,
         Intent.ACTION_INSERT_OR_EDIT,
+        // Some apps add events through ACTION_EDIT on the events collection.
+        Intent.ACTION_EDIT,
         -> ExternalEventRequest.NewEvent(ExternalEventParser.draftFromExtras(intent.extrasAsMap()))
 
         Intent.ACTION_VIEW -> intent.data?.let(ExternalEventRequest::ImportIcs)

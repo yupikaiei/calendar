@@ -77,6 +77,8 @@ startActivity(intent)
 
 Supported extras use the `CalendarContract.Events` names: `title`, `description`, `eventLocation`, `beginTime`, `endTime`, `allDay`, and `rrule`. All-day begin and end follow the platform convention of UTC midnight. The draft is only stored after the user taps **Save**, so other apps cannot silently modify the calendar.
 
+Some apps add events with `ACTION_EDIT` on the events collection (`content://com.android.calendar/events`) instead of `ACTION_INSERT`. Frelsi Cal treats those as new-event requests too.
+
 Calendar files opened or shared with the app (`ACTION_VIEW` or `ACTION_SEND` with `text/calendar`) go through the same import path as **Settings → Import .ics**.
 
 Frelsi Cal does not implement the `CalendarContract` content provider, so apps that write to `content://com.android.calendar` directly instead of launching the insert intent are not supported.

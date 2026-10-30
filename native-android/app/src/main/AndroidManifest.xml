@@ -66,6 +66,36 @@
                     android:scheme="content" />
             </intent-filter>
 
+            <!-- Some apps add events with ACTION_EDIT on the events collection (for example
+                 when Google Calendar is unavailable). Android resolves the collection's MIME
+                 type, so the type is required. Only the collection is matched: Frelsi Cal
+                 cannot edit events owned by another provider. -->
+            <intent-filter>
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="vnd.android.cursor.dir/event" />
+                <data
+                    android:host="com.android.calendar"
+                    android:pathPattern="/events"
+                    android:scheme="content" />
+                <data
+                    android:host="com.android.calendar"
+                    android:pathPattern="/events/"
+                    android:scheme="content" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:host="com.android.calendar"
+                    android:pathPattern="/events"
+                    android:scheme="content" />
+                <data
+                    android:host="com.android.calendar"
+                    android:pathPattern="/events/"
+                    android:scheme="content" />
+            </intent-filter>
+
             <!-- Calendar files opened or shared from other apps. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

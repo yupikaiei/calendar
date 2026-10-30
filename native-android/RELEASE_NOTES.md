@@ -1,6 +1,13 @@
-# Frelsi Cal Native — v1.0.5
+# Frelsi Cal Native — v1.0.6
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
+
+## Add events from other apps
+
+- **Other apps can now open the new-event editor pre-filled**, following the Android calendar contract (`ACTION_INSERT` / `ACTION_INSERT_OR_EDIT` with `vnd.android.cursor.dir/event`). Title, description, location, start and end time, the all-day flag and the recurrence rule are carried over.
+- **`.ics` files opened or shared with the app** (`ACTION_VIEW` / `ACTION_SEND` with `text/calendar`) now import through the same path as **Settings → Import .ics**, including calendars shared as plain text.
+- Incoming events are **never written silently**: they open in the editor and are stored only after you tap **Save**.
+- All-day requests use the platform's UTC-midnight convention and land on the correct local date.
 
 ## Agenda opens on today
 
@@ -38,12 +45,13 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 - Edit or delete a single occurrence without changing the rest of the series
 - Local SQLite storage and two-way CalDAV sync
 - Multiple calendars, ICS import, and secondary timezone display
+- Events added from other apps through the Android calendar contract
 - Reminders with recurring-occurrence chaining
 - Keystore-encrypted CalDAV password
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.5.apk` below.
+1. Download `frelsi-cal-native-v1.0.6.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 
@@ -67,6 +75,22 @@ Troubleshooting:
 - **TLS certificate error**: install the self-signed CA on the phone or use a certificate the phone trusts.
 - **Not found (404)**: use the server base URL, not the Radicale web UI or a calendar URL.
 - **Sync timed out**: the server accepted the connection but did not answer within 30 seconds. Check the URL, proxy and firewall.
+
+## Adding events from other apps
+
+Other apps can open the editor with a pre-filled event:
+
+```kotlin
+val intent = Intent(Intent.ACTION_INSERT).apply {
+    type = "vnd.android.cursor.dir/event"
+    putExtra(CalendarContract.Events.TITLE, "Dentist")
+    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+}
+startActivity(intent)
+```
+
+The app does not implement the `CalendarContract` content provider, so apps that write to `content://com.android.calendar` directly instead of launching the insert intent are not supported.
 
 ## Notes
 

@@ -132,39 +132,50 @@ class EventRepository(
             val contents = context.contentResolver.openInputStream(uri)?.use { stream ->
                 stream.bufferedReader(Charsets.UTF_8).readText()
             } ?: return@withContext ImportResult(0, "Unable to open the selected file.")
-
-            val parsed = IcsParser.parseEvents(contents)
-            if (parsed.isEmpty()) return@withContext ImportResult(0, "No events found in this file.")
-
-            val calendarId = database.insertLocalCalendar(
-                urlPath = "/local/imported/${System.currentTimeMillis()}/",
-                displayName = "Imported Calendar",
-                color = "#4CAF50",
-            )
-
-            for (item in parsed) {
-                // Birthday exports often store all-day events as midnight UTC.
-                val normalized = IcsParser.normalizeAllDayImport(item)
-                database.insertEvent(
-                    Event(
-                        uid = normalized.uid.ifBlank { UUID.randomUUID().toString() },
-                        title = normalized.title,
-                        start = normalized.start,
-                        end = normalized.end,
-                        description = normalized.description,
-                        location = normalized.location,
-                        recurrenceRule = normalized.recurrenceRule,
-                        calendarId = calendarId,
-                        allDay = normalized.allDay,
-                        excludedStarts = normalized.excludedStarts,
-                    ),
-                )
-            }
-            reload()
-            ImportResult(parsed.size, "Imported ${parsed.size} event(s) successfully.")
+            importIcsContents(contents)
         } catch (exception: Exception) {
             ImportResult(0, "Failed to import ICS: ${exception.message}")
         }
+    }
+
+    suspend fun importIcsText(contents: String): ImportResult = withContext(Dispatchers.IO) {
+        try {
+            importIcsContents(contents)
+        } catch (exception: Exception) {
+            ImportResult(0, "Failed to import ICS: ${exception.message}")
+        }
+    }
+
+    private suspend fun importIcsContents(contents: String): ImportResult {
+        val parsed = IcsParser.parseEvents(contents)
+        if (parsed.isEmpty()) return ImportResult(0, "No events found in this file.")
+
+        val calendarId = database.insertLocalCalendar(
+            urlPath = "/local/imported/${System.currentTimeMillis()}/",
+            displayName = "Imported Calendar",
+            color = "#4CAF50",
+        )
+
+        for (item in parsed) {
+            // Birthday exports often store all-day events as midnight UTC.
+            val normalized = IcsParser.normalizeAllDayImport(item)
+            database.insertEvent(
+                Event(
+                    uid = normalized.uid.ifBlank { UUID.randomUUID().toString() },
+                    title = normalized.title,
+                    start = normalized.start,
+                    end = normalized.end,
+                    description = normalized.description,
+                    location = normalized.location,
+                    recurrenceRule = normalized.recurrenceRule,
+                    calendarId = calendarId,
+                    allDay = normalized.allDay,
+                    excludedStarts = normalized.excludedStarts,
+                ),
+            )
+        }
+        reload()
+        return ImportResult(parsed.size, "Imported ${parsed.size} event(s) successfully.")
     }
 
     suspend fun createLocalCalendar(name: String): CalendarRecord = withContext(Dispatchers.IO) {

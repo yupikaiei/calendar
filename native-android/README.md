@@ -14,6 +14,7 @@ A native Kotlin/Jetpack Compose implementation of Frelsi Cal. It preserves the F
 - **Two-way CalDAV sync** against Radicale/Nextcloud-style servers: calendar discovery, automatic `frelsi` calendar creation, incremental event upload, tombstone propagation, and ctag-based downloads. Each request is time-bounded so the sync indicator cannot hang indefinitely. Automatic syncs are silent, run at most every 5 minutes (15 minutes after a failure), and are skipped while the device has no network or CalDAV is not configured.
 - **Reminders** scheduled through `AlarmManager`, with `USE_EXACT_ALARM` on Android 13+ and a direct grant shortcut on Android 12. Recurring events schedule the next occurrence and chain each following occurrence after an alert fires; reminders are rescheduled after reboot/app updates.
 - **Multiple calendars** with create, rename, recolor, and delete.
+- **External event requests** from other apps through the Android calendar contract (`ACTION_INSERT`) and calendar files opened or shared with the app. Incoming events open in the editor for confirmation before they are stored.
 - **ICS import and CalDAV sync** detect birthday calendars that encode all-day events as midnight UTC timestamps and show them as all-day. Existing events are repaired once on first launch.
 - **Secondary timezone** display in event cards.
 - **Password encryption** using an AES/GCM key stored in the Android Keystore.
@@ -58,6 +59,27 @@ app/src/main/java/com/frelsical/nativeapp/
 ├── FrelsiApplication.kt
 └── MainActivity.kt
 ```
+
+## Adding events from other apps
+
+Frelsi Cal accepts the platform calendar contract, so any app can open the new-event editor pre-filled with an event:
+
+```kotlin
+val intent = Intent(Intent.ACTION_INSERT).apply {
+    type = "vnd.android.cursor.dir/event"
+    putExtra(CalendarContract.Events.TITLE, "Dentist")
+    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+    putExtra(CalendarContract.Events.EVENT_LOCATION, "Main Street 4")
+}
+startActivity(intent)
+```
+
+Supported extras use the `CalendarContract.Events` names: `title`, `description`, `eventLocation`, `beginTime`, `endTime`, `allDay`, and `rrule`. All-day begin and end follow the platform convention of UTC midnight. The draft is only stored after the user taps **Save**, so other apps cannot silently modify the calendar.
+
+Calendar files opened or shared with the app (`ACTION_VIEW` or `ACTION_SEND` with `text/calendar`) go through the same import path as **Settings → Import .ics**.
+
+Frelsi Cal does not implement the `CalendarContract` content provider, so apps that write to `content://com.android.calendar` directly instead of launching the insert intent are not supported.
 
 ## Configuration
 

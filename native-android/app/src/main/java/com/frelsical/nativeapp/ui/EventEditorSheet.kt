@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.frelsical.nativeapp.data.CalendarRecord
 import com.frelsical.nativeapp.data.Event
+import com.frelsical.nativeapp.data.EventDraft
 import com.frelsical.nativeapp.data.Occurrence
 import com.frelsical.nativeapp.ical.RecurrenceRules
 import com.frelsical.nativeapp.ui.theme.parseCalendarColor
@@ -87,40 +88,46 @@ fun EventEditorSheet(
     calendars: List<CalendarRecord>,
     onDismiss: () -> Unit,
     viewModel: CalendarViewModel,
+    draft: EventDraft? = null,
 ) {
     val zone: ZoneId = remember { ZoneId.systemDefault() }
     val context = LocalContext.current
     val editingOccurrence = occurrence != null
-    val defaultStart = remember(event?.id, occurrence?.start, initialDate) {
-        occurrence?.start ?: event?.start ?: DateFormats.combine(
+    val prefilledAllDay = event?.allDay ?: draft?.allDay ?: false
+    val defaultStart = remember(event?.id, occurrence?.start, initialDate, draft) {
+        occurrence?.start ?: event?.start ?: draft?.start ?: DateFormats.combine(
             initialDate,
             LocalTime.now().withSecond(0).withNano(0),
             zone,
         )
     }
-    val defaultEnd = remember(event?.id, occurrence?.start) {
-        occurrence?.end ?: event?.end ?: (defaultStart + 60 * 60 * 1000L)
+    val defaultEnd = remember(event?.id, occurrence?.start, draft) {
+        occurrence?.end ?: event?.end ?: draft?.end ?: (defaultStart + 60 * 60 * 1000L)
     }
 
-    var title by rememberSaveable { mutableStateOf(event?.title.orEmpty()) }
-    var description by rememberSaveable { mutableStateOf(event?.description.orEmpty()) }
-    var location by rememberSaveable { mutableStateOf(event?.location.orEmpty()) }
-    var allDay by rememberSaveable { mutableStateOf(event?.allDay ?: false) }
+    var title by rememberSaveable { mutableStateOf(event?.title ?: draft?.title.orEmpty()) }
+    var description by rememberSaveable {
+        mutableStateOf(event?.description ?: draft?.description.orEmpty())
+    }
+    var location by rememberSaveable { mutableStateOf(event?.location ?: draft?.location.orEmpty()) }
+    var allDay by rememberSaveable { mutableStateOf(prefilledAllDay) }
     var startDate by rememberSaveable { mutableStateOf(DateFormats.millisToDate(defaultStart, zone)) }
     var startTime by rememberSaveable { mutableStateOf(DateFormats.millisToTime(defaultStart, zone)) }
     var endDate by rememberSaveable {
         mutableStateOf(
             DateFormats.millisToDate(defaultEnd, zone).let {
-                if (event?.allDay == true) it.minusDays(1) else it
+                if (prefilledAllDay) it.minusDays(1) else it
             },
         )
     }
     var endTime by rememberSaveable { mutableStateOf(DateFormats.millisToTime(defaultEnd, zone)) }
     var recurrence by rememberSaveable {
-        mutableStateOf(RecurrenceRules.normalize(event?.recurrenceRule))
+        mutableStateOf(RecurrenceRules.normalize(event?.recurrenceRule ?: draft?.recurrenceRule))
     }
     var recurrenceEndDate by rememberSaveable {
-        mutableStateOf(RecurrenceRules.parseUntilDate(event?.recurrenceRule, zone))
+        mutableStateOf(
+            RecurrenceRules.parseUntilDate(event?.recurrenceRule ?: draft?.recurrenceRule, zone),
+        )
     }
     var reminders by remember { mutableStateOf(listOf<Int>()) }
     var originalReminders by remember { mutableStateOf(listOf<Int>()) }

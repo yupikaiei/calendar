@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,7 +54,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.frelsical.nativeapp.data.Event
+import com.frelsical.nativeapp.data.EventDraft
 import com.frelsical.nativeapp.data.Occurrence
+import com.frelsical.nativeapp.external.ExternalEventRequest
 import com.frelsical.nativeapp.ical.RecurrenceExpander
 import java.time.LocalDate
 import java.time.ZoneId
@@ -62,7 +65,11 @@ private enum class ViewMode { Agenda, Month }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
+fun CalendarApp(
+    viewModel: CalendarViewModel = viewModel(),
+    externalRequest: ExternalEventRequest? = null,
+    onExternalRequestConsumed: () -> Unit = {},
+) {
     val events by viewModel.events.collectAsStateWithLifecycle()
     val eventsLoaded by viewModel.eventsLoaded.collectAsStateWithLifecycle()
     val calendars by viewModel.calendars.collectAsStateWithLifecycle()
@@ -79,6 +86,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
 
     var editorVisible by remember { mutableStateOf(false) }
     var editorEvent by remember { mutableStateOf<Event?>(null) }
+    var editorDraft by remember { mutableStateOf<EventDraft?>(null) }
     var editorDate by remember { mutableStateOf(LocalDate.now()) }
     var editorOccurrence by remember { mutableStateOf<Occurrence?>(null) }
     var scopeOccurrence by remember { mutableStateOf<Occurrence?>(null) }
@@ -109,6 +117,37 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     }
 
     val zone = remember { ZoneId.systemDefault() }
+
+    LaunchedEffect(externalRequest) {
+        when (val request = externalRequest) {
+            null -> Unit
+
+            is ExternalEventRequest.NewEvent -> {
+                // Show the request in the editor so the user confirms the event.
+                showSettings = false
+                editorEvent = null
+                editorOccurrence = null
+                editorDraft = request.draft
+                editorDate = request.draft.start
+                    ?.let { DateFormats.millisToDate(it, zone) }
+                    ?: LocalDate.now(zone)
+                editorVisible = true
+                onExternalRequestConsumed()
+            }
+
+            is ExternalEventRequest.ImportIcs -> {
+                showSettings = false
+                viewModel.importIcs(request.uri)
+                onExternalRequestConsumed()
+            }
+
+            is ExternalEventRequest.ImportIcsText -> {
+                showSettings = false
+                viewModel.importIcsText(request.contents)
+                onExternalRequestConsumed()
+            }
+        }
+    }
     var windowStart by rememberSaveable { mutableStateOf(LocalDate.now(zone).minusYears(2)) }
     var windowEnd by rememberSaveable { mutableStateOf(LocalDate.now(zone).plusYears(5)) }
     val days = remember(events, zone, windowStart, windowEnd, todayKey) {
@@ -133,6 +172,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
             scopeOccurrence = occurrence
         } else {
             editorEvent = occurrence.event
+            editorDraft = null
             editorDate = occurrence.date
             editorOccurrence = null
             editorVisible = true
@@ -230,6 +270,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                     containerColor = MaterialTheme.colorScheme.primary,
                     onClick = {
                         editorEvent = null
+                        editorDraft = null
                         editorOccurrence = null
                         editorDate = if (viewMode == ViewMode.Month) selectedDay else LocalDate.now()
                         editorVisible = true
@@ -268,17 +309,21 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
     }
 
     if (editorVisible) {
-        EventEditorSheet(
-            event = editorEvent,
-            occurrence = editorOccurrence,
-            initialDate = editorDate,
-            calendars = calendars,
-            onDismiss = {
-                editorVisible = false
-                editorOccurrence = null
-            },
-            viewModel = viewModel,
-        )
+        key(editorDraft) {
+            EventEditorSheet(
+                event = editorEvent,
+                occurrence = editorOccurrence,
+                initialDate = editorDate,
+                draft = editorDraft,
+                calendars = calendars,
+                onDismiss = {
+                    editorVisible = false
+                    editorOccurrence = null
+                    editorDraft = null
+                },
+                viewModel = viewModel,
+            )
+        }
     }
 
     scopeOccurrence?.let { occurrence ->
@@ -294,6 +339,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                     TextButton(onClick = {
                         scopeOccurrence = null
                         editorEvent = occurrence.event
+                        editorDraft = null
                         editorDate = occurrence.date
                         editorOccurrence = null
                         editorVisible = true
@@ -303,6 +349,7 @@ fun CalendarApp(viewModel: CalendarViewModel = viewModel()) {
                     TextButton(onClick = {
                         scopeOccurrence = null
                         editorEvent = occurrence.event
+                        editorDraft = null
                         editorDate = occurrence.date
                         editorOccurrence = occurrence
                         editorVisible = true

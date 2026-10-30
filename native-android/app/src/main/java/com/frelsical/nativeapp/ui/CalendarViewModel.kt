@@ -313,6 +313,13 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun importIcsText(contents: String) {
+        viewModelScope.launch {
+            val result = repository.importIcsText(contents)
+            _messages.tryEmit(result.message)
+        }
+    }
+
     fun canScheduleExactAlarms(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return true
         val manager = getApplication<Application>().getSystemService(AlarmManager::class.java)

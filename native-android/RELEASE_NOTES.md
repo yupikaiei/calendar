@@ -1,11 +1,18 @@
-# Frelsi Cal Native — v1.0.7
+# Frelsi Cal Native — v1.0.8
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
+## Events from apps that fall back to ACTION_EDIT
+
+- Some apps don't use the standard insert intent. When Google Calendar is unavailable, **Urban Sports Club** falls back to `ACTION_EDIT` on the events collection (`content://com.android.calendar/events`).
+- Frelsi Cal now accepts that typed edit request and opens the editor with the event pre-filled (title, time, location).
+- Only the events collection is matched, so requests to edit an existing event ID are left alone.
+- **Important:** apps that hard-code Google Calendar (Urban Sports Club does) still launch it directly while it is enabled. To route those bookings to Frelsi Cal, disable Google Calendar in Android settings.
+
 ## Choose Frelsi Cal as your calendar handler
 
-- Frelsi Cal now answers **"open calendar" requests** (`CATEGORY_APP_CALENDAR`), so Android can offer it as the default when another app or launcher asks for the calendar. Pick Frelsi Cal and **Always** in the chooser.
-- Combined with the new-event support added in 1.0.6, that same choice also routes `ACTION_INSERT` requests to Frelsi Cal.
+- Frelsi Cal answers **"open calendar" requests** (`CATEGORY_APP_CALENDAR`), so Android can offer it as the default when another app or launcher asks for the calendar. Pick Frelsi Cal and **Always** in the chooser.
+- Combined with the new-event support, that same choice also routes `ACTION_INSERT` requests to Frelsi Cal.
 - Android has no global "default calendar app" setting, and apps that write directly to `content://com.android.calendar` still target the system calendar provider.
 
 ## Add events from other apps
@@ -57,7 +64,7 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.7.apk` below.
+1. Download `frelsi-cal-native-v1.0.8.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 

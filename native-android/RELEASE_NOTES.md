@@ -1,6 +1,12 @@
-# Frelsi Cal Native — v1.0.6
+# Frelsi Cal Native — v1.0.7
 
 A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
+
+## Choose Frelsi Cal as your calendar handler
+
+- Frelsi Cal now answers **"open calendar" requests** (`CATEGORY_APP_CALENDAR`), so Android can offer it as the default when another app or launcher asks for the calendar. Pick Frelsi Cal and **Always** in the chooser.
+- Combined with the new-event support added in 1.0.6, that same choice also routes `ACTION_INSERT` requests to Frelsi Cal.
+- Android has no global "default calendar app" setting, and apps that write directly to `content://com.android.calendar` still target the system calendar provider.
 
 ## Add events from other apps
 
@@ -51,7 +57,7 @@ A native Kotlin/Jetpack Compose build of Frelsi Cal for Android.
 
 ## Installation
 
-1. Download `frelsi-cal-native-v1.0.6.apk` below.
+1. Download `frelsi-cal-native-v1.0.7.apk` below.
 2. On Android, allow installing apps from your browser/file manager if prompted.
 3. Open the APK to install.
 
